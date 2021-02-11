@@ -3,7 +3,7 @@ use strict;
 use warnings;
 use PostgresNode;
 use TestLib;
-use Test::More tests => 5;
+use Test::More tests => 11;
 
 # Bug #15114
 
@@ -134,10 +134,9 @@ $node_twoways->safe_psql(
 	INSERT INTO t SELECT * FROM generate_series(1, $rows);
 	INSERT INTO t2 SELECT * FROM generate_series(1, $rows);
 	});
-$node_twoways->safe_psql(
-	'd1', 'ALTER PUBLICATION testpub ADD TABLE t2');
-$node_twoways->safe_psql(
-	'd2', 'ALTER SUBSCRIPTION testsub REFRESH PUBLICATION');
+$node_twoways->safe_psql('d1', 'ALTER PUBLICATION testpub ADD TABLE t2');
+$node_twoways->safe_psql('d2',
+	'ALTER SUBSCRIPTION testsub REFRESH PUBLICATION');
 
 # We cannot rely solely on wait_for_catchup() here; it isn't sufficient
 # when tablesync workers might still be running. So in addition to that,
@@ -153,3 +152,72 @@ is($node_twoways->safe_psql('d2', "SELECT count(f) FROM t"),
 	$rows * 2, "2x$rows rows in t");
 is($node_twoways->safe_psql('d2', "SELECT count(f) FROM t2"),
 	$rows * 2, "2x$rows rows in t2");
+
+# Create subcription for a publication which does not exist.
+$node_publisher = get_new_node('testpublisher');
+$node_publisher->init(allows_streaming => 'logical');
+$node_publisher->start;
+
+$node_subscriber = get_new_node('testsubscriber');
+$node_subscriber->init(allows_streaming => 'logical');
+$node_subscriber->start;
+
+$publisher_connstr = $node_publisher->connstr . ' dbname=postgres';
+
+$node_publisher->safe_psql('postgres',
+	"CREATE PUBLICATION testpub1 FOR ALL TABLES");
+
+$node_subscriber->safe_psql('postgres',
+	"CREATE SUBSCRIPTION testsub1 CONNECTION '$publisher_connstr' PUBLICATION testpub1"
+);
+
+# Specified publication does not exist.
+my ($ret, $stdout, $stderr) = $node_subscriber->psql('postgres',
+	"CREATE SUBSCRIPTION testsub2 CONNECTION '$publisher_connstr' PUBLICATION pub_doesnt_exist"
+);
+ok( $stderr =~
+	  /ERROR:  publication\(s\) "pub_doesnt_exist" does not exist in the publisher/,
+	"Create subscription for non existent publication fails");
+
+# One of the specified publication exist.
+($ret, $stdout, $stderr) = $node_subscriber->psql('postgres',
+	"CREATE SUBSCRIPTION testsub2 CONNECTION '$publisher_connstr' PUBLICATION testpub1, pub_doesnt_exist"
+);
+ok( $stderr =~
+	  /ERROR:  publication\(s\) "pub_doesnt_exist" does not exist in the publisher/,
+	"Create subscription for non existent publication fails");
+
+# Multiple publications does not exist.
+($ret, $stdout, $stderr) = $node_subscriber->psql('postgres',
+	"CREATE SUBSCRIPTION testsub2 CONNECTION '$publisher_connstr' PUBLICATION pub_doesnt_exist, pub_doesnt_exist1"
+);
+ok( $stderr =~
+	  /ERROR:  publication\(s\) "pub_doesnt_exist", "pub_doesnt_exist1" does not exist in the publisher/,
+	"Create subscription for non existent publication fails");
+
+# Specified publication does not exist.
+($ret, $stdout, $stderr) = $node_subscriber->psql('postgres',
+	"ALTER SUBSCRIPTION testsub1 SET PUBLICATION pub_doesnt_exist");
+ok( $stderr =~
+	  /ERROR:  publication\(s\) "pub_doesnt_exist" does not exist in the publisher/,
+	"Alter subscription for non existent publication fails");
+
+# Specified publication does not exist with refresh = false.
+($ret, $stdout, $stderr) = $node_subscriber->psql('postgres',
+	"ALTER SUBSCRIPTION testsub1 SET PUBLICATION pub_doesnt_exist WITH (REFRESH = FALSE)"
+);
+ok( $stderr =~
+	  /ERROR:  publication\(s\) "pub_doesnt_exist" does not exist in the publisher/,
+	"Alter subscription for non existent publication fails");
+
+# Set publication on non existent database.
+$node_subscriber->safe_psql('postgres',
+	"ALTER SUBSCRIPTION testsub1 CONNECTION 'dbname=regress_doesnotexist2'");
+($ret, $stdout, $stderr) = $node_subscriber->psql('postgres',
+	"ALTER SUBSCRIPTION testsub1 SET PUBLICATION pub_doesnt_exist WITH (REFRESH = FALSE)"
+);
+ok( $stderr =~ /ERROR:  could not connect to the publisher/,
+	"Alter subscription for non existent publication fails");
+
+$node_publisher->stop('fast');
+$node_subscriber->stop('fast');

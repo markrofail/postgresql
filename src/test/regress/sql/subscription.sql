@@ -61,7 +61,6 @@ ALTER SUBSCRIPTION regress_testsub CONNECTION 'foobar';
 
 \dRs+
 
-ALTER SUBSCRIPTION regress_testsub SET PUBLICATION testpub2, testpub3 WITH (refresh = false);
 ALTER SUBSCRIPTION regress_testsub CONNECTION 'dbname=regress_doesnotexist2';
 ALTER SUBSCRIPTION regress_testsub SET (slot_name = 'newname');
 

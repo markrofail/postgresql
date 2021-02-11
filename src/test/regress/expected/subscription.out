@@ -82,7 +82,6 @@ ERROR:  invalid connection string syntax: missing "=" after "foobar" in connecti
  regress_testsub | regress_subscription_user | f       | {testpub}   | f      | f         | off                | dbname=regress_doesnotexist
 (1 row)
 
-ALTER SUBSCRIPTION regress_testsub SET PUBLICATION testpub2, testpub3 WITH (refresh = false);
 ALTER SUBSCRIPTION regress_testsub CONNECTION 'dbname=regress_doesnotexist2';
 ALTER SUBSCRIPTION regress_testsub SET (slot_name = 'newname');
 -- fail
@@ -91,27 +90,27 @@ ERROR:  subscription "regress_doesnotexist" does not exist
 ALTER SUBSCRIPTION regress_testsub SET (create_slot = false);
 ERROR:  unrecognized subscription parameter: "create_slot"
 \dRs+
-                                                                List of subscriptions
-      Name       |           Owner           | Enabled |     Publication     | Binary | Streaming | Synchronous commit |           Conninfo           
------------------+---------------------------+---------+---------------------+--------+-----------+--------------------+------------------------------
- regress_testsub | regress_subscription_user | f       | {testpub2,testpub3} | f      | f         | off                | dbname=regress_doesnotexist2
+                                                            List of subscriptions
+      Name       |           Owner           | Enabled | Publication | Binary | Streaming | Synchronous commit |           Conninfo           
+-----------------+---------------------------+---------+-------------+--------+-----------+--------------------+------------------------------
+ regress_testsub | regress_subscription_user | f       | {testpub}   | f      | f         | off                | dbname=regress_doesnotexist2
 (1 row)
 
 BEGIN;
 ALTER SUBSCRIPTION regress_testsub ENABLE;
 \dRs
-                            List of subscriptions
-      Name       |           Owner           | Enabled |     Publication     
------------------+---------------------------+---------+---------------------
- regress_testsub | regress_subscription_user | t       | {testpub2,testpub3}
+                        List of subscriptions
+      Name       |           Owner           | Enabled | Publication 
+-----------------+---------------------------+---------+-------------
+ regress_testsub | regress_subscription_user | t       | {testpub}
 (1 row)
 
 ALTER SUBSCRIPTION regress_testsub DISABLE;
 \dRs
-                            List of subscriptions
-      Name       |           Owner           | Enabled |     Publication     
------------------+---------------------------+---------+---------------------
- regress_testsub | regress_subscription_user | f       | {testpub2,testpub3}
+                        List of subscriptions
+      Name       |           Owner           | Enabled | Publication 
+-----------------+---------------------------+---------+-------------
+ regress_testsub | regress_subscription_user | f       | {testpub}
 (1 row)
 
 COMMIT;
@@ -126,10 +125,10 @@ ALTER SUBSCRIPTION regress_testsub_foo SET (synchronous_commit = foobar);
 ERROR:  invalid value for parameter "synchronous_commit": "foobar"
 HINT:  Available values: local, remote_write, remote_apply, on, off.
 \dRs+
-                                                                  List of subscriptions
-        Name         |           Owner           | Enabled |     Publication     | Binary | Streaming | Synchronous commit |           Conninfo           
----------------------+---------------------------+---------+---------------------+--------+-----------+--------------------+------------------------------
- regress_testsub_foo | regress_subscription_user | f       | {testpub2,testpub3} | f      | f         | local              | dbname=regress_doesnotexist2
+                                                              List of subscriptions
+        Name         |           Owner           | Enabled | Publication | Binary | Streaming | Synchronous commit |           Conninfo           
+---------------------+---------------------------+---------+-------------+--------+-----------+--------------------+------------------------------
+ regress_testsub_foo | regress_subscription_user | f       | {testpub}   | f      | f         | local              | dbname=regress_doesnotexist2
 (1 row)
 
 -- rename back to keep the rest simple

@@ -46,6 +46,7 @@
 #include "utils/syscache.h"
 
 static List *fetch_table_list(WalReceiverConn *wrconn, List *publications);
+static void check_publications(WalReceiverConn *wrconn, List *publications);
 
 /*
  * Common option parsing function for CREATE and ALTER SUBSCRIPTION commands.
@@ -490,6 +491,9 @@ CreateSubscription(CreateSubscriptionStmt *stmt, bool isTopLevel)
 
 		PG_TRY();
 		{
+			/* Verify specified publications exists in the publisher. */
+			check_publications(wrconn, publications);
+
 			/*
 			 * Set sync state based on if we were asked to do data copy or
 			 * not.
@@ -557,7 +561,7 @@ CreateSubscription(CreateSubscriptionStmt *stmt, bool isTopLevel)
 }
 
 static void
-AlterSubscription_refresh(Subscription *sub, bool copy_data)
+AlterSubscription_refresh(Subscription *sub, bool copy_data, bool check_pub)
 {
 	char	   *err;
 	List	   *pubrel_names;
@@ -575,6 +579,10 @@ AlterSubscription_refresh(Subscription *sub, bool copy_data)
 	if (!wrconn)
 		ereport(ERROR,
 				(errmsg("could not connect to the publisher: %s", err)));
+
+	/* Verify specified publications exists in the publisher. */
+	if (check_pub)
+		check_publications(wrconn, sub->publications);
 
 	/* Get the table list from publisher. */
 	pubrel_names = fetch_table_list(wrconn, sub->publications);
@@ -822,6 +830,8 @@ AlterSubscription(AlterSubscriptionStmt *stmt)
 			{
 				bool		copy_data;
 				bool		refresh;
+				char	   *err;
+				WalReceiverConn *wrconn;
 
 				parse_subscription_options(stmt->options,
 										   NULL,	/* no "connect" */
@@ -839,6 +849,21 @@ AlterSubscription(AlterSubscriptionStmt *stmt)
 
 				update_tuple = true;
 
+				/* Load the library providing us libpq calls. */
+				load_file("libpqwalreceiver", false);
+
+				/* Try to connect to the publisher. */
+				wrconn = walrcv_connect(sub->conninfo, true, sub->name, &err);
+				if (!wrconn)
+					ereport(ERROR,
+							(errmsg("could not connect to the publisher: %s", err)));
+
+				/* Verify specified publications exists in the publisher. */
+				check_publications(wrconn, stmt->publication);
+
+				/* We are done with the remote side, close connection. */
+				walrcv_disconnect(wrconn);
+
 				/* Refresh if user asked us to. */
 				if (refresh)
 				{
@@ -851,7 +876,7 @@ AlterSubscription(AlterSubscriptionStmt *stmt)
 					/* Make sure refresh sees the new list of publications. */
 					sub->publications = stmt->publication;
 
-					AlterSubscription_refresh(sub, copy_data);
+					AlterSubscription_refresh(sub, copy_data, false);
 				}
 
 				break;
@@ -877,7 +902,7 @@ AlterSubscription(AlterSubscriptionStmt *stmt)
 										   NULL, NULL,	/* no "binary" */
 										   NULL, NULL); /* no "streaming" */
 
-				AlterSubscription_refresh(sub, copy_data);
+				AlterSubscription_refresh(sub, copy_data, true);
 
 				break;
 			}
@@ -1208,27 +1233,20 @@ AlterSubscriptionOwner_oid(Oid subid, Oid newOwnerId)
 }
 
 /*
- * Get the list of tables which belong to specified publications on the
- * publisher connection.
+ * Return a query by appending the publications to the input query.
  */
-static List *
-fetch_table_list(WalReceiverConn *wrconn, List *publications)
+static StringInfoData *
+get_appended_publications_query(List *publications, char *query)
 {
-	WalRcvExecResult *res;
-	StringInfoData cmd;
-	TupleTableSlot *slot;
-	Oid			tableRow[2] = {TEXTOID, TEXTOID};
+	bool		first = true;
+	StringInfoData *cmd = makeStringInfo();
 	ListCell   *lc;
-	bool		first;
-	List	   *tablelist = NIL;
 
 	Assert(list_length(publications) > 0);
 
-	initStringInfo(&cmd);
-	appendStringInfoString(&cmd, "SELECT DISTINCT t.schemaname, t.tablename\n"
-						   "  FROM pg_catalog.pg_publication_tables t\n"
-						   " WHERE t.pubname IN (");
-	first = true;
+	initStringInfo(cmd);
+	appendStringInfoString(cmd, query);
+
 	foreach(lc, publications)
 	{
 		char	   *pubname = strVal(lfirst(lc));
@@ -1236,14 +1254,108 @@ fetch_table_list(WalReceiverConn *wrconn, List *publications)
 		if (first)
 			first = false;
 		else
-			appendStringInfoString(&cmd, ", ");
+			appendStringInfoString(cmd, ", ");
 
-		appendStringInfoString(&cmd, quote_literal_cstr(pubname));
+		appendStringInfoString(cmd, quote_literal_cstr(pubname));
 	}
-	appendStringInfoChar(&cmd, ')');
 
-	res = walrcv_exec(wrconn, cmd.data, 2, tableRow);
-	pfree(cmd.data);
+	appendStringInfoChar(cmd, ')');
+	return cmd;
+}
+
+/*
+ * Verify that the specified publication(s) exists in the publisher.
+ */
+static void
+check_publications(WalReceiverConn *wrconn, List *publications)
+{
+	WalRcvExecResult *res;
+	StringInfoData *cmd;
+	TupleTableSlot *slot;
+	List	   *publicationsCopy = NIL;
+	Oid			tableRow[1] = {TEXTOID};
+
+	cmd = get_appended_publications_query(publications, "SELECT t.pubname\n"
+										  "  FROM pg_catalog.pg_publication t\n"
+										  " WHERE t.pubname IN (");
+
+	res = walrcv_exec(wrconn, cmd->data, 1, tableRow);
+	pfree(cmd->data);
+	pfree(cmd);
+
+	if (res->status != WALRCV_OK_TUPLES)
+		ereport(ERROR,
+				(errmsg("could not receive list of publications from the publisher: %s",
+						res->err)));
+
+	publicationsCopy = list_copy(publications);
+
+	/* Process publications. */
+	slot = MakeSingleTupleTableSlot(res->tupledesc, &TTSOpsMinimalTuple);
+	while (tuplestore_gettupleslot(res->tuplestore, true, false, slot))
+	{
+		char	   *pubname;
+		bool		isnull;
+
+		pubname = TextDatumGetCString(slot_getattr(slot, 1, &isnull));
+		Assert(!isnull);
+
+		/* Delete the publication present in publisher from the list. */
+		publicationsCopy = list_delete(publicationsCopy, makeString(pubname));
+		ExecClearTuple(slot);
+	}
+
+	ExecDropSingleTupleTableSlot(slot);
+
+	walrcv_clear_result(res);
+
+	if (list_length(publicationsCopy))
+	{
+		StringInfoData nonExistentPublications;
+		bool		first = true;
+		ListCell   *lc;
+
+		/* Convert the publications which does not exist into a string. */
+		initStringInfo(&nonExistentPublications);
+		foreach(lc, publicationsCopy)
+		{
+			char	   *pubname = strVal(lfirst(lc));
+
+			if (first)
+				first = false;
+			else
+				appendStringInfoString(&nonExistentPublications, ", ");
+			appendStringInfoString(&nonExistentPublications, "\"");
+			appendStringInfoString(&nonExistentPublications, pubname);
+			appendStringInfoString(&nonExistentPublications, "\"");
+		}
+
+		ereport(ERROR,
+				(errmsg("publication(s) %s does not exist in the publisher",
+						nonExistentPublications.data)));
+	}
+}
+
+/*
+ * Get the list of tables which belong to specified publications on the
+ * publisher connection.
+ */
+static List *
+fetch_table_list(WalReceiverConn *wrconn, List *publications)
+{
+	WalRcvExecResult *res;
+	StringInfoData *cmd;
+	TupleTableSlot *slot;
+	Oid			tableRow[2] = {TEXTOID, TEXTOID};
+	List	   *tablelist = NIL;
+
+	cmd = get_appended_publications_query(publications,
+									"SELECT DISTINCT t.schemaname, t.tablename\n"
+									"  FROM pg_catalog.pg_publication_tables t\n"
+									" WHERE t.pubname IN (");
+	res = walrcv_exec(wrconn, cmd->data, 2, tableRow);
+	pfree(cmd->data);
+	pfree(cmd);
 
 	if (res->status != WALRCV_OK_TUPLES)
 		ereport(ERROR,
