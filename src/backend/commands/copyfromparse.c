@@ -46,21 +46,6 @@
  * empty statements.  See http://www.cit.gu.edu.au/~anthony/info/C/C.macros.
  */
 
-/*
- * This keeps the character read at the top of the loop in the buffer
- * even if there is more than one read-ahead.
- */
-#define IF_NEED_REFILL_AND_NOT_EOF_CONTINUE(extralen) \
-if (1) \
-{ \
-	if (raw_buf_ptr + (extralen) >= copy_buf_len && !hit_eof) \
-	{ \
-		raw_buf_ptr = prev_raw_ptr; /* undo fetch */ \
-		need_data = true; \
-		continue; \
-	} \
-} else ((void) 0)
-
 /* This consumes the remainder of the buffer and breaks */
 #define IF_NEED_REFILL_AND_EOF_BREAK(extralen) \
 if (1) \
@@ -118,7 +103,7 @@ static int	CopyGetData(CopyFromState cstate, void *databuf,
 						int minread, int maxread);
 static inline bool CopyGetInt32(CopyFromState cstate, int32 *val);
 static inline bool CopyGetInt16(CopyFromState cstate, int16 *val);
-static bool CopyLoadRawBuf(CopyFromState cstate);
+static bool CopyLoadRawBuf(CopyFromState cstate, int minread);
 static int	CopyReadBinaryData(CopyFromState cstate, char *dest, int nbytes);
 
 void
@@ -209,7 +194,7 @@ CopyGetData(CopyFromState cstate, void *databuf, int minread, int maxread)
 				ereport(ERROR,
 						(errcode_for_file_access(),
 						 errmsg("could not read from COPY file: %m")));
-			if (bytesread == 0)
+			if (bytesread < maxread)
 				cstate->reached_eof = true;
 			break;
 		case COPY_FRONTEND:
@@ -278,6 +263,8 @@ CopyGetData(CopyFromState cstate, void *databuf, int minread, int maxread)
 			break;
 		case COPY_CALLBACK:
 			bytesread = cstate->data_source_cb(databuf, minread, maxread);
+			if (bytesread < minread)
+				cstate->reached_eof = true;
 			break;
 	}
 
@@ -329,14 +316,13 @@ CopyGetInt16(CopyFromState cstate, int16 *val)
 /*
  * CopyLoadRawBuf loads some more data into raw_buf
  *
- * Returns true if able to obtain at least one more byte, else false.
+ * Returns true if able to obtain at least 'minread' bytes, else false.
  *
  * If RAW_BUF_BYTES(cstate) > 0, the unprocessed bytes are moved to the start
- * of the buffer and then we load more data after that.  This case occurs only
- * when a multibyte character crosses a bufferload boundary.
+ * of the buffer and then we load more data after that.
  */
 static bool
-CopyLoadRawBuf(CopyFromState cstate)
+CopyLoadRawBuf(CopyFromState cstate, int minread)
 {
 	int			nbytes = RAW_BUF_BYTES(cstate);
 	int			inbytes;
@@ -347,14 +333,15 @@ CopyLoadRawBuf(CopyFromState cstate)
 				nbytes);
 
 	inbytes = CopyGetData(cstate, cstate->raw_buf + nbytes,
-						  1, RAW_BUF_SIZE - nbytes);
+						  minread, RAW_BUF_SIZE - nbytes);
 	nbytes += inbytes;
 	cstate->raw_buf[nbytes] = '\0';
 	cstate->raw_buf_index = 0;
 	cstate->raw_buf_len = nbytes;
 	cstate->bytes_processed += inbytes;
 	pgstat_progress_update_param(PROGRESS_COPY_BYTES_PROCESSED, cstate->bytes_processed);
-	return (inbytes > 0);
+
+	return (inbytes >= minread);
 }
 
 /*
@@ -389,7 +376,7 @@ CopyReadBinaryData(CopyFromState cstate, char *dest, int nbytes)
 			/* Load more data if buffer is empty. */
 			if (RAW_BUF_BYTES(cstate) == 0)
 			{
-				if (!CopyLoadRawBuf(cstate))
+				if (!CopyLoadRawBuf(cstate, 1))
 					break;		/* EOF */
 			}
 
@@ -678,7 +665,7 @@ CopyReadLine(CopyFromState cstate)
 			do
 			{
 				cstate->raw_buf_index = cstate->raw_buf_len;
-			} while (CopyLoadRawBuf(cstate));
+			} while (CopyLoadRawBuf(cstate, 1));
 		}
 	}
 	else
@@ -747,7 +734,6 @@ CopyReadLineText(CopyFromState cstate)
 	char	   *copy_raw_buf;
 	int			raw_buf_ptr;
 	int			copy_buf_len;
-	bool		need_data = false;
 	bool		hit_eof = false;
 	bool		result = false;
 	char		mblen_str[2];
@@ -794,6 +780,7 @@ CopyReadLineText(CopyFromState cstate)
 	copy_raw_buf = cstate->raw_buf;
 	raw_buf_ptr = cstate->raw_buf_index;
 	copy_buf_len = cstate->raw_buf_len;
+	hit_eof = cstate->reached_eof;
 
 	for (;;)
 	{
@@ -801,38 +788,40 @@ CopyReadLineText(CopyFromState cstate)
 		char		c;
 
 		/*
-		 * Load more data if needed.  Ideally we would just force four bytes
-		 * of read-ahead and avoid the many calls to
-		 * IF_NEED_REFILL_AND_NOT_EOF_CONTINUE(), but the COPY_OLD_FE protocol
-		 * does not allow us to read too far ahead or we might read into the
-		 * next data, so we read-ahead only as far we know we can.  One
-		 * optimization would be to read-ahead four byte here if
-		 * cstate->copy_src != COPY_OLD_FE, but it hardly seems worth it,
-		 * considering the size of the buffer.
+		 * Load more data if needed.
+		 *
+		 * We need to look ahead max three bytes in one iteration of the loop
+		 * (for the sequence \.<CR><NL>), so make sure we have at least four
+		 * bytes in the buffer.  Note that we always guarantee that there is
+		 * one \0 in the buffer, after last valid byte; the lookaheads below
+		 * rely on that.
 		 */
-		if (raw_buf_ptr >= copy_buf_len || need_data)
+#define COPY_READ_LINE_LOOKAHEAD	4
+		if (raw_buf_ptr + COPY_READ_LINE_LOOKAHEAD >= copy_buf_len)
 		{
-			REFILL_LINEBUF;
+			if (!hit_eof)
+			{
+				REFILL_LINEBUF;
 
-			/*
-			 * Try to read some more data.  This will certainly reset
-			 * raw_buf_index to zero, and raw_buf_ptr must go with it.
-			 */
-			if (!CopyLoadRawBuf(cstate))
-				hit_eof = true;
-			raw_buf_ptr = 0;
-			copy_buf_len = cstate->raw_buf_len;
+				/*
+				 * Try to read some more data.  This will certainly reset
+				 * raw_buf_index to zero, and raw_buf_ptr must go with it.
+				 */
+				if (!CopyLoadRawBuf(cstate, COPY_READ_LINE_LOOKAHEAD))
+					hit_eof = true;
+				raw_buf_ptr = 0;
+				copy_buf_len = cstate->raw_buf_len;
+			}
 
 			/*
 			 * If we are completely out of data, break out of the loop,
 			 * reporting EOF.
 			 */
-			if (copy_buf_len <= 0)
+			if (copy_buf_len - raw_buf_ptr <= 0)
 			{
 				result = true;
 				break;
 			}
-			need_data = false;
 		}
 
 		/* OK to fetch a character */
@@ -841,20 +830,6 @@ CopyReadLineText(CopyFromState cstate)
 
 		if (cstate->opts.csv_mode)
 		{
-			/*
-			 * If character is '\\' or '\r', we may need to look ahead below.
-			 * Force fetch of the next character if we don't already have it.
-			 * We need to do this before changing CSV state, in case one of
-			 * these characters is also the quote or escape character.
-			 *
-			 * Note: old-protocol does not like forced prefetch, but it's OK
-			 * here since we cannot validly be at EOF.
-			 */
-			if (c == '\\' || c == '\r')
-			{
-				IF_NEED_REFILL_AND_NOT_EOF_CONTINUE(0);
-			}
-
 			/*
 			 * Dealing with quotes and escapes here is mildly tricky. If the
 			 * quote char is also the escape char, there's no problem - we
@@ -888,14 +863,9 @@ CopyReadLineText(CopyFromState cstate)
 				cstate->eol_type == EOL_CRNL)
 			{
 				/*
-				 * If need more data, go back to loop top to load it.
-				 *
-				 * Note that if we are at EOF, c will wind up as '\0' because
-				 * of the guaranteed pad of raw_buf.
+				 * Look at the next character.  If we're at EOF, c2 will wind
+				 * up as '\0' because of the guaranteed pad of raw_buf.
 				 */
-				IF_NEED_REFILL_AND_NOT_EOF_CONTINUE(0);
-
-				/* get next char */
 				c = copy_raw_buf[raw_buf_ptr];
 
 				if (c == '\n')
@@ -961,7 +931,6 @@ CopyReadLineText(CopyFromState cstate)
 		{
 			char		c2;
 
-			IF_NEED_REFILL_AND_NOT_EOF_CONTINUE(0);
 			IF_NEED_REFILL_AND_EOF_BREAK(0);
 
 			/* -----
@@ -976,16 +945,9 @@ CopyReadLineText(CopyFromState cstate)
 			{
 				raw_buf_ptr++;	/* consume the '.' */
 
-				/*
-				 * Note: if we loop back for more data here, it does not
-				 * matter that the CSV state change checks are re-executed; we
-				 * will come back here with no important state changed.
-				 */
 				if (cstate->eol_type == EOL_CRNL)
 				{
-					/* Get the next character */
-					IF_NEED_REFILL_AND_NOT_EOF_CONTINUE(0);
-					/* if hit_eof, c2 will become '\0' */
+					/* Get next character.  If hit_eof, c2 will become '\0' */
 					c2 = copy_raw_buf[raw_buf_ptr++];
 
 					if (c2 == '\n')
@@ -1008,9 +970,7 @@ CopyReadLineText(CopyFromState cstate)
 					}
 				}
 
-				/* Get the next character */
-				IF_NEED_REFILL_AND_NOT_EOF_CONTINUE(0);
-				/* if hit_eof, c2 will become '\0' */
+				/* Get next character.  If hit_eof, c2 will become '\0' */
 				c2 = copy_raw_buf[raw_buf_ptr++];
 
 				if (c2 != '\r' && c2 != '\n')
@@ -1095,7 +1055,6 @@ not_end_of_copy:
 			mblen_str[0] = c;
 			mblen = pg_encoding_mblen(cstate->file_encoding, mblen_str);
 
-			IF_NEED_REFILL_AND_NOT_EOF_CONTINUE(mblen - 1);
 			IF_NEED_REFILL_AND_EOF_BREAK(mblen - 1);
 			raw_buf_ptr += mblen - 1;
 		}
