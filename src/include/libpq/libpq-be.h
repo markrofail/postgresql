@@ -200,6 +200,10 @@ typedef struct Port
 	SSL		   *ssl;
 	X509	   *peer;
 #endif
+
+#ifdef USE_NSS
+	void	   *pr_fd;
+#endif
 } Port;
 
 #ifdef USE_SSL
@@ -283,7 +287,7 @@ extern void be_tls_get_peer_serial(Port *port, char *ptr, size_t len);
  * This is not supported with old versions of OpenSSL that don't have
  * the X509_get_signature_nid() function.
  */
-#if defined(USE_OPENSSL) && defined(HAVE_X509_GET_SIGNATURE_NID)
+#if defined(USE_NSS) || (defined(USE_OPENSSL) && defined(HAVE_X509_GET_SIGNATURE_NID))
 #define HAVE_BE_TLS_GET_CERTIFICATE_HASH
 extern char *be_tls_get_certificate_hash(Port *port, size_t *len);
 #endif
@@ -292,6 +296,10 @@ extern char *be_tls_get_certificate_hash(Port *port, size_t *len);
 #ifdef USE_OPENSSL
 typedef void (*openssl_tls_init_hook_typ) (SSL_CTX *context, bool isServerStart);
 extern PGDLLIMPORT openssl_tls_init_hook_typ openssl_tls_init_hook;
+#endif
+#ifdef USE_NSS
+typedef void (*nss_tls_init_hook_type) (bool isServerStart);
+extern PGDLLIMPORT nss_tls_init_hook_type nss_tls_init_hook;
 #endif
 
 #endif							/* USE_SSL */
