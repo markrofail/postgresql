@@ -479,6 +479,11 @@ TODO:
 }
 
 # pg_stat_ssl
+
+my $serialno = `openssl x509 -serial -noout -in ssl/client.crt`;
+$serialno =~ s/^serial=//;
+$serialno = hex($serialno); # OpenSSL prints serial numbers in hexadecimal
+
 command_like(
 	[
 		'psql',
@@ -494,7 +499,7 @@ command_like(
 		"SELECT * FROM pg_stat_ssl WHERE pid = pg_backend_pid()"
 	],
 	qr{^pid,ssl,version,cipher,bits,compression,client_dn,client_serial,issuer_dn\r?\n
-				^\d+,t,TLSv[\d.]+,[\w-]+,\d+,f,/CN=ssltestuser,1,\Q/CN=Test CA for PostgreSQL SSL regression test client certs\E\r?$}mx,
+				^\d+,t,TLSv[\d.]+,[\w-]+,\d+,f,/CN=ssltestuser,$serialno,\Q/CN=Test CA for PostgreSQL SSL regression test client certs\E\r?$}mx,
 	'pg_stat_ssl with client certificate');
 
 # client key with wrong permissions
