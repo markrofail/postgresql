@@ -1671,6 +1671,7 @@ _outTargetEntry(StringInfo str, const TargetEntry *node)
 	WRITE_OID_FIELD(resorigtbl);
 	WRITE_INT_FIELD(resorigcol);
 	WRITE_BOOL_FIELD(resjunk);
+	WRITE_BOOL_FIELD(isdefault);
 }
 
 static void

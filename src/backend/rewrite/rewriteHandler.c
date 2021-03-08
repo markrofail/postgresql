@@ -987,10 +987,13 @@ rewriteTargetListIU(List *targetList,
 			}
 
 			if (new_expr)
+			{
 				new_tle = makeTargetEntry((Expr *) new_expr,
 										  attrno,
 										  pstrdup(NameStr(att_tup->attname)),
 										  false);
+				new_tle->isdefault = true;
+			}
 		}
 
 		/*
