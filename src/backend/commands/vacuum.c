@@ -447,6 +447,7 @@ vacuum(List *relations, VacuumParams *params,
 		VacuumSharedCostBalance = NULL;
 		VacuumActiveNWorkers = NULL;
 
+		analyze_init_status();
 		/*
 		 * Loop to process each selected relation.
 		 */
@@ -497,6 +498,7 @@ vacuum(List *relations, VacuumParams *params,
 	{
 		in_vacuum = false;
 		VacuumCostActive = false;
+		analyze_destroy_status();
 	}
 	PG_END_TRY();
 
