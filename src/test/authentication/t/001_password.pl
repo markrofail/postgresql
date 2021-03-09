@@ -17,7 +17,7 @@ if (!$use_unix_sockets)
 }
 else
 {
-	plan tests => 13;
+	plan tests => 19;
 }
 
 
@@ -57,6 +57,7 @@ sub test_role
 # Initialize primary node
 my $node = get_new_node('primary');
 $node->init;
+$node->append_conf('postgresql.conf', "log_connections = on\n");
 $node->start;
 
 # Create 3 roles with different password methods for each one. The same
@@ -69,26 +70,83 @@ $node->safe_psql('postgres',
 );
 $ENV{"PGPASSWORD"} = 'pass';
 
+my $log = $node->rotate_logfile();
+$node->restart;
+
 # For "trust" method, all users should be able to connect.
 reset_pg_hba($node, 'trust');
 test_role($node, 'scram_role', 'trust', 0);
 test_role($node, 'md5_role',   'trust', 0);
+
+$node->stop('fast');
+my $log_contents = slurp_file($log);
+
+unlike(
+	$log_contents,
+	qr/connection authenticated:/,
+	"trust method does not authenticate users");
+
+$log = $node->rotate_logfile();
+$node->start;
 
 # For plain "password" method, all users should also be able to connect.
 reset_pg_hba($node, 'password');
 test_role($node, 'scram_role', 'password', 0);
 test_role($node, 'md5_role',   'password', 0);
 
+$node->stop('fast');
+$log_contents = slurp_file($log);
+
+like(
+	$log_contents,
+	qr/connection authenticated: identity="scram_role" method=password/,
+	"password method logs authenticated identity");
+
+$log = $node->rotate_logfile();
+$node->start;
+
 # For "scram-sha-256" method, user "scram_role" should be able to connect.
 reset_pg_hba($node, 'scram-sha-256');
 test_role($node, 'scram_role', 'scram-sha-256', 0);
 test_role($node, 'md5_role',   'scram-sha-256', 2);
+
+$node->stop('fast');
+$log_contents = slurp_file($log);
+
+like(
+	$log_contents,
+	qr/connection authenticated: identity="scram_role" method=scram-sha-256/,
+	"scram-sha-256 method logs authenticated identity");
+
+unlike(
+	$log_contents,
+	qr/connection authenticated: identity="md5_role"/,
+	"mismatched crypt methods do not result in authentication");
+
+$log = $node->rotate_logfile();
+$node->start;
 
 # For "md5" method, all users should be able to connect (SCRAM
 # authentication will be performed for the user with a SCRAM secret.)
 reset_pg_hba($node, 'md5');
 test_role($node, 'scram_role', 'md5', 0);
 test_role($node, 'md5_role',   'md5', 0);
+
+$node->stop('fast');
+$log_contents = slurp_file($log);
+
+like(
+	$log_contents,
+	qr/connection authenticated: identity="md5_role" method=md5/,
+	"md5 method logs authenticated identity");
+
+like(
+	$log_contents,
+	qr/connection authenticated: identity="scram_role" method=md5/,
+	"md5 method logs authenticated identity for SCRAM users too");
+
+$log = $node->rotate_logfile();
+$node->start;
 
 # Tests for channel binding without SSL.
 # Using the password authentication method; channel binding can't work

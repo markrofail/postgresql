@@ -17,7 +17,7 @@ if ($ENV{with_ssl} ne 'openssl')
 }
 else
 {
-	plan tests => 101;
+	plan tests => 105;
 }
 
 #### Some configuration
@@ -424,12 +424,26 @@ test_connect_fails(
 	qr/connection requires a valid client certificate/,
 	"certificate authorization fails without client cert");
 
+my $log = $node->rotate_logfile();
+$node->restart;
+
 # correct client cert in unencrypted PEM
 test_connect_ok(
 	$common_connstr,
 	"user=ssltestuser sslcert=ssl/client.crt sslkey=ssl/client_tmp.key",
 	"certificate authorization succeeds with correct client cert in PEM format"
 );
+
+# make sure certificate DNs are logged correctly
+$node->stop('fast');
+my $log_contents = slurp_file($log);
+
+like(
+	$log_contents,
+	qr/connection authenticated: identity="CN=ssltestuser" method=cert/,
+	"authenticated DNs are logged");
+
+$node->start;
 
 # correct client cert in unencrypted DER
 test_connect_ok(
@@ -516,6 +530,9 @@ SKIP:
 		"certificate authorization fails because of file permissions");
 }
 
+$log = $node->rotate_logfile();
+$node->restart;
+
 # client cert belonging to another user
 test_connect_fails(
 	$common_connstr,
@@ -524,6 +541,17 @@ test_connect_fails(
 	"certificate authorization fails with client cert belonging to another user"
 );
 
+$node->stop('fast');
+$log_contents = slurp_file($log);
+
+like(
+	$log_contents,
+	qr/connection authenticated: identity="CN=ssltestuser" method=cert/,
+	"cert authentication succeeds even if authorization fails");
+
+$log = $node->rotate_logfile();
+$node->restart;
+
 # revoked client cert
 test_connect_fails(
 	$common_connstr,
@@ -531,11 +559,24 @@ test_connect_fails(
 	qr/SSL error/,
 	"certificate authorization fails with revoked client cert");
 
+$node->stop('fast');
+$log_contents = slurp_file($log);
+
+unlike(
+	$log_contents,
+	qr/connection authenticated:/,
+	"revoked certs do not authenticate users");
+
+$node->start;
+
 # Check that connecting with auth-option verify-full in pg_hba:
 # works, iff username matches Common Name
 # fails, iff username doesn't match Common Name.
 $common_connstr =
   "sslrootcert=ssl/root+server_ca.crt sslmode=require dbname=verifydb hostaddr=$SERVERHOSTADDR";
+
+$log = $node->rotate_logfile();
+$node->restart;
 
 test_connect_ok(
 	$common_connstr,
@@ -557,6 +598,18 @@ test_connect_ok(
 	"user=yetanotheruser sslcert=ssl/client.crt sslkey=ssl/client_tmp.key",
 	"auth_option clientcert=verify-ca succeeds with mismatching username and Common Name"
 );
+
+$node->stop('fast');
+$log_contents = slurp_file($log);
+
+# None of the above connections to verifydb should have resulted in
+# authentication.
+unlike(
+	$log_contents,
+	qr/connection authenticated:/,
+	"trust auth method does not set authenticated identity");
+
+$node->start;
 
 # intermediate client_ca.crt is provided by client, and isn't in server's ssl_ca_file
 switch_server_cert($node, 'server-cn-only', 'root_ca');

@@ -3110,3 +3110,27 @@ hba_getauthmethod(hbaPort *port)
 {
 	check_hba(port);
 }
+
+
+/*
+ * Return the name of the auth method in use ("gss", "md5", "trust", etc.).
+ *
+ * The return value is statically allocated (see the UserAuthName array) and
+ * should not be freed.
+ */
+const char *
+hba_authname(hbaPort *port)
+{
+	UserAuth	auth_method;
+
+	Assert(port->hba);
+	auth_method = port->hba->auth_method;
+
+	if (auth_method < 0 || USER_AUTH_LAST < auth_method)
+	{
+		Assert((0 <= auth_method) && (auth_method <= USER_AUTH_LAST));
+		return NULL;
+	}
+
+	return UserAuthName[auth_method];
+}

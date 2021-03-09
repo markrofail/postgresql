@@ -27,7 +27,7 @@ my $SERVERHOSTCIDR = '127.0.0.1/32';
 my $supports_tls_server_end_point =
   check_pg_config("#define HAVE_X509_GET_SIGNATURE_NID 1");
 
-my $number_of_tests = $supports_tls_server_end_point ? 9 : 10;
+my $number_of_tests = $supports_tls_server_end_point ? 15 : 16;
 
 # Allocation of base connection string shared among multiple tests.
 my $common_connstr;
@@ -48,13 +48,43 @@ $node->start;
 configure_test_server_for_ssl($node, $SERVERHOSTADDR, $SERVERHOSTCIDR,
 	"scram-sha-256", "pass", "scram-sha-256");
 switch_server_cert($node, 'server-cn-only');
-$ENV{PGPASSWORD} = "pass";
 $common_connstr =
   "dbname=trustdb sslmode=require sslcert=invalid sslrootcert=invalid hostaddr=$SERVERHOSTADDR";
 
+my $log = $node->rotate_logfile();
+$node->restart;
+
+# Bad password
+$ENV{PGPASSWORD} = "badpass";
+test_connect_fails($common_connstr, "user=ssltestuser",
+	qr/password authentication failed/,
+	"Basic SCRAM authentication with bad password");
+
+$node->stop('fast');
+my $log_contents = slurp_file($log);
+
+unlike(
+	$log_contents,
+	qr/connection authenticated:/,
+	"SCRAM does not set authenticated identity with bad password");
+
+$log = $node->rotate_logfile();
+$node->start;
+
 # Default settings
+$ENV{PGPASSWORD} = "pass";
 test_connect_ok($common_connstr, "user=ssltestuser",
 	"Basic SCRAM authentication with SSL");
+
+$node->stop('fast');
+$log_contents = slurp_file($log);
+
+like(
+	$log_contents,
+	qr/connection authenticated: identity="ssltestuser" method=scram-sha-256/,
+	"Basic SCRAM sets the username as the authenticated identity");
+
+$node->start;
 
 # Test channel_binding
 test_connect_fails(
@@ -101,6 +131,25 @@ test_connect_fails(
 	"dbname=certdb user=ssltestuser channel_binding=require",
 	qr/channel binding required, but server authenticated client without channel binding/,
 	"Cert authentication and channel_binding=require");
+
+$log = $node->rotate_logfile();
+$node->restart;
+
+# Certificate verification at the connection level should still work fine.
+test_connect_ok(
+	"sslcert=ssl/client.crt sslkey=$client_tmp_key sslrootcert=invalid hostaddr=$SERVERHOSTADDR",
+	"dbname=verifydb user=ssltestuser channel_binding=require",
+	"SCRAM with clientcert=verify-full and channel_binding=require");
+
+$node->stop('fast');
+$log_contents = slurp_file($log);
+
+like(
+	$log_contents,
+	qr/connection authenticated: identity="ssltestuser" method=scram-sha-256/,
+	"SCRAM with clientcert=verify-full sets the username as the authenticated identity");
+
+$node->start;
 
 # clean up
 unlink($client_tmp_key);

@@ -6,7 +6,7 @@ use Test::More;
 
 if ($ENV{with_ldap} eq 'yes')
 {
-	plan tests => 22;
+	plan tests => 24;
 }
 else
 {
@@ -152,6 +152,7 @@ note "setting up PostgreSQL instance";
 
 my $node = get_new_node('node');
 $node->init;
+$node->append_conf('postgresql.conf', "log_connections = on\n");
 $node->start;
 
 $node->safe_psql('postgres', 'CREATE USER test0;');
@@ -173,6 +174,9 @@ sub test_access
 
 note "simple bind";
 
+# save log location for later tests
+my $log = $node->rotate_logfile();
+
 unlink($node->data_dir . '/pg_hba.conf');
 $node->append_conf('pg_hba.conf',
 	qq{local all all ldap ldapserver=$ldap_server ldapport=$ldap_port ldapprefix="uid=" ldapsuffix=",dc=example,dc=net"}
@@ -184,8 +188,30 @@ test_access($node, 'test0', 2,
 	'simple bind authentication fails if user not found in LDAP');
 test_access($node, 'test1', 2,
 	'simple bind authentication fails with wrong password');
+
+$node->stop('fast');
+my $log_contents = slurp_file($log);
+
+unlike(
+	$log_contents,
+	qr/connection authenticated:/,
+	"unauthenticated DNs are not logged");
+
+$log = $node->rotate_logfile();
+$node->start;
+
 $ENV{"PGPASSWORD"} = 'secret1';
 test_access($node, 'test1', 0, 'simple bind authentication succeeds');
+
+$node->stop('fast');
+$log_contents = slurp_file($log);
+
+like(
+	$log_contents,
+	qr/connection authenticated: identity="uid=test1,dc=example,dc=net" method=ldap/,
+	"authenticated DNs are logged");
+
+$node->start;
 
 note "search+bind";
 
