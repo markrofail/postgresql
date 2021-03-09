@@ -2484,6 +2484,7 @@ ExecReindex(ParseState *pstate, ReindexStmt *stmt, bool isTopLevel)
 	bool		concurrently = false;
 	bool		verbose = false;
 	char	   *tablespacename = NULL;
+	bool		outdated_filter = false;
 
 	/* Parse option list */
 	foreach(lc, stmt->params)
@@ -2496,6 +2497,8 @@ ExecReindex(ParseState *pstate, ReindexStmt *stmt, bool isTopLevel)
 			concurrently = defGetBoolean(opt);
 		else if (strcmp(opt->defname, "tablespace") == 0)
 			tablespacename = defGetString(opt);
+		else if (strcmp(opt->defname, "outdated") == 0)
+			outdated_filter = defGetBoolean(opt);
 		else
 			ereport(ERROR,
 					(errcode(ERRCODE_SYNTAX_ERROR),
@@ -2510,7 +2513,8 @@ ExecReindex(ParseState *pstate, ReindexStmt *stmt, bool isTopLevel)
 
 	params.options =
 		(verbose ? REINDEXOPT_VERBOSE : 0) |
-		(concurrently ? REINDEXOPT_CONCURRENTLY : 0);
+		(concurrently ? REINDEXOPT_CONCURRENTLY : 0) |
+		(outdated_filter ? REINDEXOPT_OUTDATED : 0);
 
 	/*
 	 * Assign the tablespace OID to move indexes to, with InvalidOid to do
@@ -3307,7 +3311,8 @@ ReindexRelationConcurrently(Oid relationOid, ReindexParams *params)
 									RelationGetRelationName(heapRelation))));
 
 				/* Add all the valid indexes of relation to list */
-				foreach(lc, RelationGetIndexList(heapRelation))
+				foreach(lc, RelationGetIndexListFiltered(heapRelation,
+														 params->options))
 				{
 					Oid			cellOid = lfirst_oid(lc);
 					Relation	indexRelation = index_open(cellOid,
@@ -3359,7 +3364,8 @@ ReindexRelationConcurrently(Oid relationOid, ReindexParams *params)
 
 					MemoryContextSwitchTo(oldcontext);
 
-					foreach(lc2, RelationGetIndexList(toastRelation))
+					foreach(lc2, RelationGetIndexListFiltered(toastRelation,
+															  params->options))
 					{
 						Oid			cellOid = lfirst_oid(lc2);
 						Relation	indexRelation = index_open(cellOid,
