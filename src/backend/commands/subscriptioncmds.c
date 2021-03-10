@@ -47,6 +47,7 @@
 #include "utils/syscache.h"
 
 static List *fetch_table_list(WalReceiverConn *wrconn, List *publications);
+static List *merge_publications(List *oldpublist, List *newpublist, bool addpub);
 static void ReportSlotConnectionError(List *rstates, Oid subid, char *slotname, char *err);
 
 
@@ -964,6 +965,53 @@ AlterSubscription(AlterSubscriptionStmt *stmt, bool isTopLevel)
 				break;
 			}
 
+		case ALTER_SUBSCRIPTION_ADD_PUBLICATION:
+		case ALTER_SUBSCRIPTION_DROP_PUBLICATION:
+			{
+				bool	copy_data = false;
+				bool	isadd = stmt->kind == ALTER_SUBSCRIPTION_ADD_PUBLICATION;
+				bool	refresh;
+				List   *publist = NIL;
+
+				publist = merge_publications(sub->publications, stmt->publication, isadd);
+
+				parse_subscription_options(stmt->options,
+										   NULL,	/* no "connect" */
+										   NULL, NULL,	/* no "enabled" */
+										   NULL,	/* no "create_slot" */
+										   NULL, NULL,	/* no "slot_name" */
+										   isadd ? &copy_data : NULL, /* for drop, no "copy_data" */
+										   NULL,	/* no "synchronous_commit" */
+										   &refresh,
+										   NULL, NULL,	/* no "binary" */
+										   NULL, NULL); /* no "streaming" */
+
+				values[Anum_pg_subscription_subpublications - 1] =
+					publicationListToArray(publist);
+				replaces[Anum_pg_subscription_subpublications - 1] = true;
+
+				update_tuple = true;
+
+				/* Refresh if user asked us to. */
+				if (refresh)
+				{
+					if (!sub->enabled)
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("ALTER SUBSCRIPTION with refresh is not allowed for disabled subscriptions"),
+								 errhint("Use ALTER SUBSCRIPTION ... SET PUBLICATION ... WITH (refresh = false).")));
+
+					PreventInTransactionBlock(isTopLevel, "ALTER SUBSCRIPTION with refresh");
+
+					/* Only refresh the added/dropped list of publications. */
+					sub->publications = stmt->publication;
+
+					AlterSubscription_refresh(sub, copy_data);
+				}
+
+				break;
+			}
+
 		case ALTER_SUBSCRIPTION_REFRESH:
 			{
 				bool		copy_data;
@@ -1550,4 +1598,88 @@ ReportSlotConnectionError(List *rstates, Oid subid, char *slotname, char *err)
 	/* translator: %s is an SQL ALTER command */
 			 errhint("Use %s to disassociate the subscription from the slot.",
 					 "ALTER SUBSCRIPTION ... SET (slot_name = NONE)")));
+}
+
+/*
+ * Merge current subscription's publications and user specified publications
+ * by ADD/DROP PUBLICATIONS.
+ *
+ * If addpub is true, we will add the list of publications into oldpublist.
+ * Otherwise, we will delete the list of publications from oldpublist.
+ */
+static List *
+merge_publications(List *oldpublist, List *newpublist, bool addpub)
+{
+	StringInfoData	errstr;
+	int				errstrcnt = 0;
+	ListCell	   *lc;
+
+	initStringInfo(&errstr);
+
+	foreach(lc, newpublist)
+	{
+		char		*name = strVal(lfirst(lc));
+		ListCell	*cell = NULL;
+
+		foreach(cell, oldpublist)
+		{
+			char	*pubname = strVal(lfirst(cell));
+
+			if (strcmp(name, pubname) == 0)
+			{
+				if (addpub)
+				{
+					errstrcnt++;
+
+					if (errstrcnt == 1)
+						appendStringInfo(&errstr, _("\"%s\""), name);
+					else
+						appendStringInfo(&errstr, _(", \"%s\""), name);
+				}
+				else
+					oldpublist = list_delete_cell(oldpublist, cell);
+
+				break;
+			}
+		}
+
+		if (addpub && cell == NULL)
+			oldpublist = lappend(oldpublist, makeString(name));
+		else if (!addpub && cell == NULL)
+		{
+			errstrcnt++;
+
+			if (errstrcnt == 1)
+				appendStringInfo(&errstr, _("\"%s\""), name);
+			else
+				appendStringInfo(&errstr, _(", \"%s\""), name);
+		}
+	}
+
+	if (errstrcnt >= 1)
+	{
+		if (addpub)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg_plural("publication %s is already present in the subscription",
+								   "publications %s are already present in the subscription",
+								   errstrcnt, errstr.data)));
+		}
+		else
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg_plural("publication %s doesn't exist in the subscription",
+								   "publications %s do not exist in the subscription",
+								   errstrcnt, errstr.data)));
+		}
+	}
+
+	if (oldpublist == NIL)
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("subscription must contain at least one publication")));
+
+	return oldpublist;
 }
