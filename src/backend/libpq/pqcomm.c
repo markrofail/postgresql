@@ -308,13 +308,13 @@ socket_close(int code, Datum arg)
  * Successfully opened sockets are added to the ListenSocket[] array (of
  * length MaxListen), at the first position that isn't PGINVALID_SOCKET.
  *
- * RETURNS: STATUS_OK or STATUS_ERROR
+ * RETURNS: The PQlistenSocket listening on, or NULL in case of error
  */
 
-int
+PQlistenSocket *
 StreamServerPort(int family, const char *hostName, unsigned short portNumber,
 				 const char *unixSocketDir,
-				 pgsocket ListenSocket[], int MaxListen)
+				 PQlistenSocket ListenSocket[], int MaxListen)
 {
 	pgsocket	fd;
 	int			err;
@@ -359,10 +359,10 @@ StreamServerPort(int family, const char *hostName, unsigned short portNumber,
 					(errmsg("Unix-domain socket path \"%s\" is too long (maximum %d bytes)",
 							unixSocketPath,
 							(int) (UNIXSOCK_PATH_BUFLEN - 1))));
-			return STATUS_ERROR;
+			return NULL;
 		}
 		if (Lock_AF_UNIX(unixSocketDir, unixSocketPath) != STATUS_OK)
-			return STATUS_ERROR;
+			return NULL;
 		service = unixSocketPath;
 	}
 	else
@@ -385,7 +385,7 @@ StreamServerPort(int family, const char *hostName, unsigned short portNumber,
 							service, gai_strerror(ret))));
 		if (addrs)
 			pg_freeaddrinfo_all(hint.ai_family, addrs);
-		return STATUS_ERROR;
+		return NULL;
 	}
 
 	for (addr = addrs; addr; addr = addr->ai_next)
@@ -402,7 +402,7 @@ StreamServerPort(int family, const char *hostName, unsigned short portNumber,
 		/* See if there is still room to add 1 more socket. */
 		for (; listen_index < MaxListen; listen_index++)
 		{
-			if (ListenSocket[listen_index] == PGINVALID_SOCKET)
+			if (ListenSocket[listen_index].socket == PGINVALID_SOCKET)
 				break;
 		}
 		if (listen_index >= MaxListen)
@@ -579,16 +579,16 @@ StreamServerPort(int family, const char *hostName, unsigned short portNumber,
 					(errmsg("listening on %s address \"%s\", port %d",
 							familyDesc, addrDesc, (int) portNumber)));
 
-		ListenSocket[listen_index] = fd;
+		ListenSocket[listen_index].socket = fd;
 		added++;
 	}
 
 	pg_freeaddrinfo_all(hint.ai_family, addrs);
 
 	if (!added)
-		return STATUS_ERROR;
+		return NULL;
 
-	return STATUS_OK;
+	return &ListenSocket[listen_index];
 }
 
 
@@ -1113,7 +1113,7 @@ pq_getbytes(char *s, size_t len)
  *		returns 0 if OK, EOF if trouble
  * --------------------------------
  */
-static int
+int
 pq_discardbytes(size_t len)
 {
 	size_t		amount;

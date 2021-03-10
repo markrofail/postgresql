@@ -121,6 +121,7 @@ typedef struct Port
 {
 	pgsocket	sock;			/* File descriptor */
 	bool		noblock;		/* is the socket in non-blocking mode? */
+	bool		isProxy;		/* is the connection using PROXY protocol */
 	ProtocolVersion proto;		/* FE/BE protocol version */
 	SockAddr	laddr;			/* local addr (postmaster) */
 	SockAddr	raddr;			/* remote addr (client) */
