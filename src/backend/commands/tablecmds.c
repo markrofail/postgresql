@@ -17497,6 +17497,9 @@ validatePartitionedIndex(Relation partedIdx, Relation partedTbl)
 		table_close(idxRel, RowExclusiveLock);
 	}
 
+	/* make sure we see the validation we just did */
+	CommandCounterIncrement();
+
 	/*
 	 * If this index is in turn a partition of a larger index, validating it
 	 * might cause the parent to become valid also.  Try that.
@@ -17507,9 +17510,6 @@ validatePartitionedIndex(Relation partedIdx, Relation partedTbl)
 					parentTblId;
 		Relation	parentIdx,
 					parentTbl;
-
-		/* make sure we see the validation we just did */
-		CommandCounterIncrement();
 
 		parentIdxId = get_partition_parent(RelationGetRelid(partedIdx));
 		parentTblId = get_partition_parent(RelationGetRelid(partedTbl));
