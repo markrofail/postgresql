@@ -211,20 +211,11 @@ sizebitvec(BITVECP sign, int siglen)
 	return pg_popcount(sign, siglen);
 }
 
-static int
+static inline int
 hemdistsign(BITVECP a, BITVECP b, int siglen)
 {
-	int			i,
-				diff,
-				dist = 0;
-
-	LOOPBYTE(siglen)
-	{
-		diff = (unsigned char) (a[i] ^ b[i]);
-		/* Using the popcount functions here isn't likely to win */
-		dist += pg_number_of_ones[diff];
-	}
-	return dist;
+	return pg_xorcount((const unsigned char *) a, (const unsigned char *) b,
+					   siglen);
 }
 
 static int
