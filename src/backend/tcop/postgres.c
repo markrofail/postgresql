@@ -102,6 +102,8 @@ int			max_stack_depth = 100;
 /* wait N seconds to allow attach from a debugger */
 int			PostAuthDelay = 0;
 
+/* Intercept CHECK_FOR_INTERRUPTS() responses */
+ProcessInterrupts_hook_type ProcessInterrupts_hook = NULL;
 
 
 /* ----------------
@@ -3000,7 +3002,25 @@ ProcessInterrupts(void)
 	/* OK to accept any interrupts now? */
 	if (InterruptHoldoffCount != 0 || CritSectionCount != 0)
 		return;
+
 	InterruptPending = false;
+
+	if (ProcessInterrupts_hook)
+		ProcessInterrupts_hook();
+	else
+		standard_ProcessInterrupts();
+}
+
+/*
+ * Implement the default signal handling behaviour for most backend types
+ * including user backends and bgworkers.
+ *
+ * This is where CHECK_FOR_INTERRUPTS() eventually lands up unless intercepted
+ * by ProcessInterrupts_hook.
+ */
+void
+standard_ProcessInterrupts(void)
+{
 
 	if (ProcDiePending)
 	{
