@@ -340,6 +340,12 @@ my %pgdump_runs = (
 
 			'--schema=dump_test', '-b', '-B', '--no-sync', 'postgres',
 		],
+	},
+	test_schema_plus_extensions => {
+		dump_cmd => [
+			'pg_dump', "--file=$tempdir/test_schema_plus_extensions.sql",
+			'--schema=dump_test', '--extension=plpgsql', '--no-sync', 'postgres',
+		],
 	},);
 
 ###############################################################
@@ -381,7 +387,8 @@ my %pgdump_runs = (
 # Tests which target the 'dump_test' schema, specifically.
 my %dump_test_schema_runs = (
 	only_dump_test_schema  => 1,
-	test_schema_plus_blobs => 1,);
+	test_schema_plus_blobs => 1,
+	test_schema_plus_extensions => 1,);
 
 # Tests which are considered 'full' dumps by pg_dump, but there
 # are flags used to exclude specific items (ACLs, blobs, etc).
@@ -2680,6 +2687,7 @@ my %tests = (
 			schema_only             => 1,
 			section_post_data       => 1,
 			test_schema_plus_blobs  => 1,
+			test_schema_plus_extensions => 1,
 		},
 		unlike => {
 			exclude_dump_test_schema => 1,
