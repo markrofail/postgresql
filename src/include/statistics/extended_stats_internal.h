@@ -57,19 +57,26 @@ typedef struct SortItem
 	int			count;
 } SortItem;
 
-extern MVNDistinct *statext_ndistinct_build(double totalrows,
-											int numrows, HeapTuple *rows,
-											Bitmapset *attrs, VacAttrStats **stats);
+/* a unified representation of the data the statistics is built on */
+typedef struct StatBuildData {
+	int			numrows;
+	int			nattnums;
+	AttrNumber *attnums;
+	VacAttrStats **stats;
+	Datum	  **values;
+	bool	  **nulls;
+} StatBuildData;
+
+
+extern MVNDistinct *statext_ndistinct_build(double totalrows, StatBuildData *data);
 extern bytea *statext_ndistinct_serialize(MVNDistinct *ndistinct);
 extern MVNDistinct *statext_ndistinct_deserialize(bytea *data);
 
-extern MVDependencies *statext_dependencies_build(int numrows, HeapTuple *rows,
-												  Bitmapset *attrs, VacAttrStats **stats);
+extern MVDependencies *statext_dependencies_build(StatBuildData *data);
 extern bytea *statext_dependencies_serialize(MVDependencies *dependencies);
 extern MVDependencies *statext_dependencies_deserialize(bytea *data);
 
-extern MCVList *statext_mcv_build(int numrows, HeapTuple *rows,
-								  Bitmapset *attrs, VacAttrStats **stats,
+extern MCVList *statext_mcv_build(StatBuildData *data,
 								  double totalrows, int stattarget);
 extern bytea *statext_mcv_serialize(MCVList *mcv, VacAttrStats **stats);
 extern MCVList *statext_mcv_deserialize(bytea *data);
@@ -90,14 +97,14 @@ extern void *bsearch_arg(const void *key, const void *base,
 						 int (*compar) (const void *, const void *, void *),
 						 void *arg);
 
-extern AttrNumber *build_attnums_array(Bitmapset *attrs, int *numattrs);
+extern AttrNumber *build_attnums_array(Bitmapset *attrs, int nexprs, int *numattrs);
 
-extern SortItem *build_sorted_items(int numrows, int *nitems, HeapTuple *rows,
-									TupleDesc tdesc, MultiSortSupport mss,
+extern SortItem *build_sorted_items(StatBuildData *data, int *nitems,
+									MultiSortSupport mss,
 									int numattrs, AttrNumber *attnums);
 
-extern bool examine_clause_args(List *args, Var **varp,
-								Const **cstp, bool *varonleftp);
+extern bool examine_opclause_args(List *args, Node **exprp,
+								  Const **cstp, bool *expronleftp);
 
 extern Selectivity mcv_combine_selectivities(Selectivity simple_sel,
 											 Selectivity mcv_sel,

@@ -58,7 +58,7 @@ static void BootstrapModeMain(void);
 static void bootstrap_signals(void);
 static void ShutdownAuxiliaryProcess(int code, Datum arg);
 static Form_pg_attribute AllocateAttribute(void);
-static void populate_typ_array(void);
+static void populate_typ(void);
 static Oid	gettype(char *type);
 static void cleanup(void);
 
@@ -159,7 +159,7 @@ struct typmap
 	FormData_pg_type am_typ;
 };
 
-static struct typmap **Typ = NULL;
+static List *Typ = NIL; /* List of struct typmap* */
 static struct typmap *Ap = NULL;
 
 static Datum values[MAXATTR];	/* current row's attribute values */
@@ -595,10 +595,10 @@ boot_openrel(char *relname)
 
 	/*
 	 * pg_type must be filled before any OPEN command is executed, hence we
-	 * can now populate the Typ array if we haven't yet.
+	 * can now populate Typ if we haven't yet.
 	 */
-	if (Typ == NULL)
-		populate_typ_array();
+	if (Typ == NIL)
+		populate_typ();
 
 	if (boot_reldesc != NULL)
 		closerel(NULL);
@@ -688,7 +688,7 @@ DefineAttr(char *name, char *type, int attnum, int nullness)
 
 	typeoid = gettype(type);
 
-	if (Typ != NULL)
+	if (Typ != NIL)
 	{
 		attrtypes[attnum]->atttypid = Ap->am_oid;
 		attrtypes[attnum]->attlen = Ap->am_typ.typlen;
@@ -866,47 +866,36 @@ cleanup(void)
 }
 
 /* ----------------
- *		populate_typ_array
+ *		populate_typ
  *
- * Load the Typ array by reading pg_type.
+ * Load Typ by reading pg_type.
  * ----------------
  */
 static void
-populate_typ_array(void)
+populate_typ(void)
 {
 	Relation	rel;
 	TableScanDesc scan;
 	HeapTuple	tup;
-	int			nalloc;
-	int			i;
+	MemoryContext old;
 
-	Assert(Typ == NULL);
-
-	nalloc = 512;
-	Typ = (struct typmap **)
-		MemoryContextAlloc(TopMemoryContext, nalloc * sizeof(struct typmap *));
+	Assert(Typ == NIL);
 
 	rel = table_open(TypeRelationId, NoLock);
 	scan = table_beginscan_catalog(rel, 0, NULL);
-	i = 0;
+	old = MemoryContextSwitchTo(TopMemoryContext);
 	while ((tup = heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{
 		Form_pg_type typForm = (Form_pg_type) GETSTRUCT(tup);
+		struct typmap *newtyp;
 
-		/* make sure there will be room for a trailing NULL pointer */
-		if (i >= nalloc - 1)
-		{
-			nalloc *= 2;
-			Typ = (struct typmap **)
-				repalloc(Typ, nalloc * sizeof(struct typmap *));
-		}
-		Typ[i] = (struct typmap *)
-			MemoryContextAlloc(TopMemoryContext, sizeof(struct typmap));
-		Typ[i]->am_oid = typForm->oid;
-		memcpy(&(Typ[i]->am_typ), typForm, sizeof(Typ[i]->am_typ));
-		i++;
+		newtyp = (struct typmap *) palloc(sizeof(struct typmap));
+		Typ = lappend(Typ, newtyp);
+
+		newtyp->am_oid = typForm->oid;
+		memcpy(&newtyp->am_typ, typForm, sizeof(newtyp->am_typ));
 	}
-	Typ[i] = NULL;				/* Fill trailing NULL pointer */
+	MemoryContextSwitchTo(old);
 	table_endscan(scan);
 	table_close(rel, NoLock);
 }
@@ -916,25 +905,54 @@ populate_typ_array(void)
  *
  * NB: this is really ugly; it will return an integer index into TypInfo[],
  * and not an OID at all, until the first reference to a type not known in
- * TypInfo[].  At that point it will read and cache pg_type in the Typ array,
+ * TypInfo[].  At that point it will read and cache pg_type in Typ,
  * and subsequently return a real OID (and set the global pointer Ap to
  * point at the found row in Typ).  So caller must check whether Typ is
- * still NULL to determine what the return value is!
+ * still NIL to determine what the return value is!
  * ----------------
  */
 static Oid
 gettype(char *type)
 {
-	if (Typ != NULL)
+	if (Typ != NIL)
 	{
-		struct typmap **app;
+		static bool did_reread PG_USED_FOR_ASSERTS_ONLY = false; /* Already reread pg_types? */
+		ListCell *lc;
 
-		for (app = Typ; *app != NULL; app++)
+		foreach (lc, Typ)
 		{
-			if (strncmp(NameStr((*app)->am_typ.typname), type, NAMEDATALEN) == 0)
+			struct typmap *app = lfirst(lc);
+			if (strncmp(NameStr(app->am_typ.typname), type, NAMEDATALEN) == 0)
 			{
-				Ap = *app;
-				return (*app)->am_oid;
+				Ap = app;
+				return app->am_oid;
+			}
+		}
+
+		/*
+		 * The type wasn't known; check again to handle composite
+		 * types, added since first populating Typ.
+		 */
+
+		/*
+		 * Once all the types are populated and we handled composite
+		 * types, shouldn't need to do that again.
+		 */
+		Assert(!did_reread);
+		did_reread = true;
+
+		list_free_deep(Typ);
+		Typ = NIL;
+		populate_typ();
+
+		/* Need to avoid infinite recursion... */
+		foreach (lc, Typ)
+		{
+			struct typmap *app = lfirst(lc);
+			if (strncmp(NameStr(app->am_typ.typname), type, NAMEDATALEN) == 0)
+			{
+				Ap = app;
+				return app->am_oid;
 			}
 		}
 	}
@@ -949,7 +967,7 @@ gettype(char *type)
 		}
 		/* Not in TypInfo, so we'd better be able to read pg_type now */
 		elog(DEBUG4, "external type: %s", type);
-		populate_typ_array();
+		populate_typ();
 		return gettype(type);
 	}
 	elog(ERROR, "unrecognized type \"%s\"", type);
@@ -977,17 +995,20 @@ boot_get_type_io_data(Oid typid,
 					  Oid *typinput,
 					  Oid *typoutput)
 {
-	if (Typ != NULL)
+	if (Typ != NIL)
 	{
 		/* We have the boot-time contents of pg_type, so use it */
-		struct typmap **app;
-		struct typmap *ap;
+		struct typmap *ap = NULL;
+		ListCell *lc;
 
-		app = Typ;
-		while (*app && (*app)->am_oid != typid)
-			++app;
-		ap = *app;
-		if (ap == NULL)
+		foreach (lc, Typ)
+		{
+			ap = lfirst(lc);
+			if (ap->am_oid == typid)
+				break;
+		}
+
+		if (!ap || ap->am_oid != typid)
 			elog(ERROR, "type OID %u not found in Typ list", typid);
 
 		*typlen = ap->am_typ.typlen;

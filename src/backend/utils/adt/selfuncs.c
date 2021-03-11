@@ -3292,6 +3292,88 @@ add_unique_group_var(PlannerInfo *root, List *varinfos,
 }
 
 /*
+ * Helper routine for estimate_num_groups: add an item to a list of
+ * GroupExprInfos, but only if it's not known equal to any of the existing
+ * entries.
+ */
+typedef struct
+{
+	Node	   *expr;			/* expression */
+	RelOptInfo *rel;			/* relation it belongs to */
+	List	   *varinfos;		/* info for variables in this expression */
+} GroupExprInfo;
+
+static List *
+add_unique_group_expr(PlannerInfo *root, List *exprinfos,
+					 Node *expr, List *vars)
+{
+	GroupExprInfo *exprinfo;
+	ListCell   *lc;
+	Bitmapset  *varnos;
+	Index		varno;
+
+	foreach(lc, exprinfos)
+	{
+		exprinfo = (GroupExprInfo *) lfirst(lc);
+
+		/* Drop exact duplicates */
+		if (equal(expr, exprinfo->expr))
+			return exprinfos;
+	}
+
+	exprinfo = (GroupExprInfo *) palloc(sizeof(GroupExprInfo));
+
+	varnos = pull_varnos(root, expr);
+
+	/*
+	 * Expressions with vars from multiple relations should never get
+	 * here, as we split them to vars.
+	 */
+	Assert(bms_num_members(varnos) == 1);
+
+	varno = bms_singleton_member(varnos);
+
+	exprinfo->expr = expr;
+	exprinfo->varinfos = NIL;
+	exprinfo->rel = root->simple_rel_array[varno];
+
+	Assert(exprinfo->rel);
+
+	/* Track vars for this expression. */
+	foreach (lc, vars)
+	{
+		VariableStatData vardata;
+		Node *var = (Node *) lfirst(lc);
+
+		/* can we get no vardata for the variable? */
+		examine_variable(root, var, 0, &vardata);
+
+		exprinfo->varinfos
+			= add_unique_group_var(root, exprinfo->varinfos, var, &vardata);
+
+		ReleaseVariableStats(vardata);
+	}
+
+	/* without a list of variables, use the expression itself */
+	if (vars == NIL)
+	{
+		VariableStatData vardata;
+
+		/* can we get no vardata for the variable? */
+		examine_variable(root, expr, 0, &vardata);
+
+		exprinfo->varinfos
+			= add_unique_group_var(root, exprinfo->varinfos,
+								   expr, &vardata);
+
+		ReleaseVariableStats(vardata);
+	}
+
+	return lappend(exprinfos, exprinfo);
+}
+
+
+/*
  * estimate_num_groups		- Estimate number of groups in a grouped query
  *
  * Given a query having a GROUP BY clause, estimate how many groups there
@@ -3360,7 +3442,7 @@ double
 estimate_num_groups(PlannerInfo *root, List *groupExprs, double input_rows,
 					List **pgset)
 {
-	List	   *varinfos = NIL;
+	List	   *exprinfos = NIL;
 	double		srf_multiplier = 1.0;
 	double		numdistinct;
 	ListCell   *l;
@@ -3398,6 +3480,7 @@ estimate_num_groups(PlannerInfo *root, List *groupExprs, double input_rows,
 		double		this_srf_multiplier;
 		VariableStatData vardata;
 		List	   *varshere;
+		Relids		varnos;
 		ListCell   *l2;
 
 		/* is expression in this grouping set? */
@@ -3434,8 +3517,9 @@ estimate_num_groups(PlannerInfo *root, List *groupExprs, double input_rows,
 		examine_variable(root, groupexpr, 0, &vardata);
 		if (HeapTupleIsValid(vardata.statsTuple) || vardata.isunique)
 		{
-			varinfos = add_unique_group_var(root, varinfos,
-											groupexpr, &vardata);
+			exprinfos = add_unique_group_expr(root, exprinfos,
+											  groupexpr, NIL);
+
 			ReleaseVariableStats(vardata);
 			continue;
 		}
@@ -3466,15 +3550,26 @@ estimate_num_groups(PlannerInfo *root, List *groupExprs, double input_rows,
 		}
 
 		/*
+		 * Are all the variables from the same relation? If yes, search for
+		 * an extended statistic matching this expression exactly.
+		 */
+		varnos = pull_varnos(root, (Node *) varshere);
+		if (bms_membership(varnos) == BMS_SINGLETON)
+		{
+			exprinfos = add_unique_group_expr(root, exprinfos,
+											  groupexpr,
+											  varshere);
+			continue;
+		}
+
+		/*
 		 * Else add variables to varinfos list
 		 */
 		foreach(l2, varshere)
 		{
 			Node	   *var = (Node *) lfirst(l2);
 
-			examine_variable(root, var, 0, &vardata);
-			varinfos = add_unique_group_var(root, varinfos, var, &vardata);
-			ReleaseVariableStats(vardata);
+			exprinfos = add_unique_group_expr(root, exprinfos, var, NIL);
 		}
 	}
 
@@ -3482,7 +3577,7 @@ estimate_num_groups(PlannerInfo *root, List *groupExprs, double input_rows,
 	 * If now no Vars, we must have an all-constant or all-boolean GROUP BY
 	 * list.
 	 */
-	if (varinfos == NIL)
+	if (exprinfos == NIL)
 	{
 		/* Apply SRF multiplier as we would do in the long path */
 		numdistinct *= srf_multiplier;
@@ -3506,32 +3601,32 @@ estimate_num_groups(PlannerInfo *root, List *groupExprs, double input_rows,
 	 */
 	do
 	{
-		GroupVarInfo *varinfo1 = (GroupVarInfo *) linitial(varinfos);
-		RelOptInfo *rel = varinfo1->rel;
+		GroupExprInfo *exprinfo1 = (GroupExprInfo *) linitial(exprinfos);
+		RelOptInfo *rel = exprinfo1->rel;
 		double		reldistinct = 1;
 		double		relmaxndistinct = reldistinct;
 		int			relvarcount = 0;
-		List	   *newvarinfos = NIL;
-		List	   *relvarinfos = NIL;
+		List	   *newexprinfos = NIL;
+		List	   *relexprinfos = NIL;
 
 		/*
 		 * Split the list of varinfos in two - one for the current rel, one
 		 * for remaining Vars on other rels.
 		 */
-		relvarinfos = lappend(relvarinfos, varinfo1);
-		for_each_from(l, varinfos, 1)
+		relexprinfos = lappend(relexprinfos, exprinfo1);
+		for_each_from(l, exprinfos, 1)
 		{
-			GroupVarInfo *varinfo2 = (GroupVarInfo *) lfirst(l);
+			GroupExprInfo *exprinfo2 = (GroupExprInfo *) lfirst(l);
 
-			if (varinfo2->rel == varinfo1->rel)
+			if (exprinfo2->rel == exprinfo1->rel)
 			{
 				/* varinfos on current rel */
-				relvarinfos = lappend(relvarinfos, varinfo2);
+				relexprinfos = lappend(relexprinfos, exprinfo2);
 			}
 			else
 			{
-				/* not time to process varinfo2 yet */
-				newvarinfos = lappend(newvarinfos, varinfo2);
+				/* not time to process exprinfo2 yet */
+				newexprinfos = lappend(newexprinfos, exprinfo2);
 			}
 		}
 
@@ -3547,11 +3642,11 @@ estimate_num_groups(PlannerInfo *root, List *groupExprs, double input_rows,
 		 * apply.  We apply a fudge factor below, but only if we multiplied
 		 * more than one such values.
 		 */
-		while (relvarinfos)
+		while (relexprinfos)
 		{
 			double		mvndistinct;
 
-			if (estimate_multivariate_ndistinct(root, rel, &relvarinfos,
+			if (estimate_multivariate_ndistinct(root, rel, &relexprinfos,
 												&mvndistinct))
 			{
 				reldistinct *= mvndistinct;
@@ -3561,18 +3656,24 @@ estimate_num_groups(PlannerInfo *root, List *groupExprs, double input_rows,
 			}
 			else
 			{
-				foreach(l, relvarinfos)
+				foreach(l, relexprinfos)
 				{
-					GroupVarInfo *varinfo2 = (GroupVarInfo *) lfirst(l);
+					ListCell *lc;
+					GroupExprInfo *exprinfo2 = (GroupExprInfo *) lfirst(l);
 
-					reldistinct *= varinfo2->ndistinct;
-					if (relmaxndistinct < varinfo2->ndistinct)
-						relmaxndistinct = varinfo2->ndistinct;
-					relvarcount++;
+					foreach (lc, exprinfo2->varinfos)
+					{
+						GroupVarInfo *varinfo2 = (GroupVarInfo *) lfirst(lc);
+
+						reldistinct *= varinfo2->ndistinct;
+						if (relmaxndistinct < varinfo2->ndistinct)
+							relmaxndistinct = varinfo2->ndistinct;
+						relvarcount++;
+					}
 				}
 
 				/* we're done with this relation */
-				relvarinfos = NIL;
+				relexprinfos = NIL;
 			}
 		}
 
@@ -3658,8 +3759,8 @@ estimate_num_groups(PlannerInfo *root, List *groupExprs, double input_rows,
 			numdistinct *= reldistinct;
 		}
 
-		varinfos = newvarinfos;
-	} while (varinfos != NIL);
+		exprinfos = newexprinfos;
+	} while (exprinfos != NIL);
 
 	/* Now we can account for the effects of any SRFs */
 	numdistinct *= srf_multiplier;
@@ -3877,53 +3978,133 @@ estimate_hashagg_tablesize(PlannerInfo *root, Path *path,
  */
 static bool
 estimate_multivariate_ndistinct(PlannerInfo *root, RelOptInfo *rel,
-								List **varinfos, double *ndistinct)
+								List **exprinfos, double *ndistinct)
 {
 	ListCell   *lc;
-	Bitmapset  *attnums = NULL;
-	int			nmatches;
+	int			nmatches_vars;
+	int			nmatches_exprs;
 	Oid			statOid = InvalidOid;
 	MVNDistinct *stats;
-	Bitmapset  *matched = NULL;
+	StatisticExtInfo *matched_info = NULL;
 
 	/* bail out immediately if the table has no extended statistics */
 	if (!rel->statlist)
 		return false;
 
-	/* Determine the attnums we're looking for */
-	foreach(lc, *varinfos)
-	{
-		GroupVarInfo *varinfo = (GroupVarInfo *) lfirst(lc);
-		AttrNumber	attnum;
-
-		Assert(varinfo->rel == rel);
-
-		if (!IsA(varinfo->var, Var))
-			continue;
-
-		attnum = ((Var *) varinfo->var)->varattno;
-
-		if (!AttrNumberIsForUserDefinedAttr(attnum))
-			continue;
-
-		attnums = bms_add_member(attnums, attnum);
-	}
-
 	/* look for the ndistinct statistics matching the most vars */
-	nmatches = 1;				/* we require at least two matches */
+	nmatches_vars = 0;				/* we require at least two matches */
+	nmatches_exprs = 0;
 	foreach(lc, rel->statlist)
 	{
+		ListCell	*lc2;
 		StatisticExtInfo *info = (StatisticExtInfo *) lfirst(lc);
-		Bitmapset  *shared;
-		int			nshared;
+		int			nshared_vars = 0;
+		int			nshared_exprs = 0;
 
 		/* skip statistics of other kinds */
 		if (info->kind != STATS_EXT_NDISTINCT)
 			continue;
 
-		/* compute attnums shared by the vars and the statistics object */
-		shared = bms_intersect(info->keys, attnums);
-		nshared = bms_num_members(shared);
+		/*
+		 * Determine how many expressions (and variables in non-matched
+		 * expressions) match. We'll then use these numbers to pick the
+		 * statistics object that best matches the clauses.
+		 *
+		 * XXX There's a bit of trouble with expressions - we search for
+		 * an exact match first, and if we don't find a match we try to
+		 * search for smaller "partial" expressions extracted from it.
+		 * So for example given GROUP BY (a+b) we search for statistics
+		 * defined on (a+b) first, and then maybe for one on (a) and (b).
+		 * The trouble here is that with the current coding, the one
+		 * matching (a) and (b) might win, because we're comparing the
+		 * counts. We should probably give some preference to exact
+		 * matches of the expressions.
+		 */
+		foreach(lc2, *exprinfos)
+		{
+			ListCell *lc3;
+			GroupExprInfo *exprinfo = (GroupExprInfo *) lfirst(lc2);
+			AttrNumber	attnum;
+			bool		found = false;
+
+			Assert(exprinfo->rel == rel);
+
+			/* simple Var, search in statistics keys directly */
+			if (IsA(exprinfo->expr, Var))
+			{
+				attnum = ((Var *) exprinfo->expr)->varattno;
+
+				/*
+				 * Ignore system attributes - we don't support statistics
+				 * on them, so can't match them (and it'd fail as the values
+				 * are negative).
+				 */
+				if (!AttrNumberIsForUserDefinedAttr(attnum))
+					continue;
+
+				if (bms_is_member(attnum, info->keys))
+					nshared_vars++;
+
+				continue;
+			}
+
+			/* expression - see if it's in the statistics */
+			foreach (lc3, info->exprs)
+			{
+				Node *expr = (Node *) lfirst(lc3);
+
+				if (equal(exprinfo->expr, expr))
+				{
+					nshared_exprs++;
+					found = true;
+					break;
+				}
+			}
+
+			/*
+			 * If it's a complex expression, and we have found it in the
+			 * statistics object, we're done. Otherwise try to match the
+			 * varinfos we've extracted from the expression. That way we
+			 * can do at least some estimation.
+			 */
+			if (found)
+				continue;
+
+			/*
+			 * Inspect the individual Vars extracted from the expression.
+			 *
+			 * XXX Maybe this should not use nshared_vars, but a separate
+			 * variable, so that we can give preference to "exact" matches
+			 * over partial ones? Consider for example two statistics [a,b,c]
+			 * and [(a+b), c], and query with
+			 *
+			 *	GROUP BY (a+b), c
+			 *
+			 * Then the first statistics matches no expressions and 3 vars,
+			 * while the second statistics matches one expression and 1 var.
+			 * Currently the first statistics wins, which seems silly.
+			 */
+			foreach(lc3, exprinfo->varinfos)
+			{
+				GroupVarInfo *varinfo = (GroupVarInfo *) lfirst(lc3);
+
+				if (IsA(varinfo->var, Var))
+				{
+					attnum = ((Var *) varinfo->var)->varattno;
+
+					if (!AttrNumberIsForUserDefinedAttr(attnum))
+						continue;
+
+					if (bms_is_member(attnum, info->keys))
+						nshared_vars++;
+				}
+
+				/* XXX What if it's not a Var? Probably can't do much. */
+			}
+		}
+
+		if (nshared_vars + nshared_exprs < 2)
+			continue;
 
 		/*
 		 * Does this statistics object match more columns than the currently
@@ -3931,19 +4112,25 @@ estimate_multivariate_ndistinct(PlannerInfo *root, RelOptInfo *rel,
 		 *
 		 * XXX This should break ties using name of the object, or something
 		 * like that, to make the outcome stable.
+		 *
+		 * XXX Maybe this should consider the vars in the opposite way, i.e.
+		 * expression matches should be more important.
 		 */
-		if (nshared > nmatches)
+		if ((nshared_vars > nmatches_vars) ||
+			((nshared_vars == nmatches_vars) && (nshared_exprs > nmatches_exprs)))
 		{
 			statOid = info->statOid;
-			nmatches = nshared;
-			matched = shared;
+			nmatches_vars = nshared_vars;
+			nmatches_exprs = nshared_exprs;
+			matched_info = info;
 		}
 	}
 
 	/* No match? */
 	if (statOid == InvalidOid)
 		return false;
-	Assert(nmatches > 1 && matched != NULL);
+
+	Assert(nmatches_vars + nmatches_exprs > 1);
 
 	stats = statext_ndistinct_load(statOid);
 
@@ -3956,45 +4143,261 @@ estimate_multivariate_ndistinct(PlannerInfo *root, RelOptInfo *rel,
 		int			i;
 		List	   *newlist = NIL;
 		MVNDistinctItem *item = NULL;
+		ListCell   *lc2;
+		Bitmapset  *matched = NULL;
+		AttrNumber	attnum_offset;
+
+		/*
+		 * How much we need to offset the attnums? If there are no expressions,
+		 * no offset is needed. Otherwise offset enough to move the lowest one
+		 * (which is equal to number of expressions) to 1.
+		 */
+		if (matched_info->exprs)
+			attnum_offset = (list_length(matched_info->exprs) + 1);
+		else
+			attnum_offset = 0;
+
+		/* see what actually matched */
+		foreach (lc2, *exprinfos)
+		{
+			ListCell   *lc3;
+			int			idx;
+			bool		found = false;
+
+			GroupExprInfo *exprinfo = (GroupExprInfo *) lfirst(lc2);
+
+			/* expression - see if it's in the statistics */
+			idx = 0;
+			foreach (lc3, matched_info->exprs)
+			{
+				Node *expr = (Node *) lfirst(lc3);
+
+				if (equal(exprinfo->expr, expr))
+				{
+					AttrNumber	attnum = -(idx + 1);
+
+					attnum = attnum + attnum_offset;
+
+					/* ensure sufficient offset */
+					Assert(AttrNumberIsForUserDefinedAttr(attnum));
+
+					matched = bms_add_member(matched, attnum);
+					found = true;
+					break;
+				}
+
+				idx++;
+			}
+
+			if (found)
+				continue;
+
+			/*
+			 * Process the varinfos (this also handles regular attributes,
+			 * which have a GroupExprInfo with one varinfo.
+			 */
+			foreach (lc3, exprinfo->varinfos)
+			{
+				GroupVarInfo *varinfo = (GroupVarInfo *) lfirst(lc3);
+
+				/* simple Var, search in statistics keys directly */
+				if (IsA(varinfo->var, Var))
+				{
+					AttrNumber	attnum = ((Var *) varinfo->var)->varattno;
+
+					/*
+					 * Ignore expressions on system attributes. Can't rely
+					 * on the bms check for negative values.
+					 */
+					if (!AttrNumberIsForUserDefinedAttr(attnum))
+						continue;
+
+					/* Is the variable covered by the statistics? */
+					if (!bms_is_member(attnum, matched_info->keys))
+						continue;
+
+					attnum = attnum + attnum_offset;
+
+					/* ensure sufficient offset */
+					Assert(AttrNumberIsForUserDefinedAttr(attnum));
+
+					matched = bms_add_member(matched, attnum);
+				}
+			}
+		}
 
 		/* Find the specific item that exactly matches the combination */
 		for (i = 0; i < stats->nitems; i++)
 		{
+			int				j;
 			MVNDistinctItem *tmpitem = &stats->items[i];
 
-			if (bms_subset_compare(tmpitem->attrs, matched) == BMS_EQUAL)
+			if (tmpitem->nattributes != bms_num_members(matched))
+				continue;
+
+			/* assume it's the right item */
+			item = tmpitem;
+
+			/* check that all item attributes/expressions fit the match */
+			for (j = 0; j < tmpitem->nattributes; j++)
 			{
-				item = tmpitem;
-				break;
+				AttrNumber attnum = tmpitem->attributes[j];
+
+				/*
+				 * Thanks to how we constructed the matched bitmap above, we
+				 * can just offset all attnums the same way.
+				 */
+				attnum = attnum + attnum_offset;
+
+				if (!bms_is_member(attnum, matched))
+				{
+					/* nah, it's not this item */
+					item = NULL;
+					break;
+				}
 			}
+
+			if (item)
+				break;
 		}
 
-		/* make sure we found an item */
+		/*
+		 * Make sure we found an item. There has to be one, because ndistinct
+		 * statistics includes all combinations of attributes.
+		 */
 		if (!item)
 			elog(ERROR, "corrupt MVNDistinct entry");
 
-		/* Form the output varinfo list, keeping only unmatched ones */
-		foreach(lc, *varinfos)
+		/* Form the output exprinfo list, keeping only unmatched ones */
+		foreach(lc, *exprinfos)
 		{
-			GroupVarInfo *varinfo = (GroupVarInfo *) lfirst(lc);
-			AttrNumber	attnum;
+			GroupExprInfo *exprinfo = (GroupExprInfo *) lfirst(lc);
+			ListCell   *lc3;
+			bool		found = false;
+			List	   *varinfos;
 
-			if (!IsA(varinfo->var, Var))
+			/*
+			 * Let's look at plain variables first, because it's the most
+			 * common case and the check is quite cheap. We can simply get
+			 * the attnum and check (with an offset) matched bitmap.
+			 */
+			if (IsA(exprinfo->expr, Var))
 			{
-				newlist = lappend(newlist, varinfo);
+				AttrNumber	attnum = ((Var *) exprinfo->expr)->varattno;
+
+				/*
+				 * If it's a system attribute, we're done. We don't support
+				 * extended statistics on system attributes, so it's clearly
+				 * not matched. Just keep the expression and continue.
+				 */
+				if (!AttrNumberIsForUserDefinedAttr(attnum))
+				{
+					newlist = lappend(newlist, exprinfo);
+					continue;
+				}
+
+				/* apply the same offset as above */
+				attnum += attnum_offset;
+
+				/* if it's not matched, keep the exprinfo */
+				if (!bms_is_member(attnum, matched))
+					newlist = lappend(newlist, exprinfo);
+
+				/* The rest of the loop deals with complex expressions. */
 				continue;
 			}
 
-			attnum = ((Var *) varinfo->var)->varattno;
+			/*
+			 * Process complex expressions, not just simple Vars.
+			 *
+			 * First, we search for an exact match of an expression. If we
+			 * find one, we can just discard the whole GroupExprInfo, with
+			 * all the variables we extracted from it.
+			 *
+			 * Otherwise we inspect the individual vars, and try matching
+			 * it to variables in the item.
+			 */
+			foreach (lc3, matched_info->exprs)
+			{
+				Node *expr = (Node *) lfirst(lc3);
 
-			if (!AttrNumberIsForUserDefinedAttr(attnum))
+				if (equal(exprinfo->expr, expr))
+				{
+					found = true;
+					break;
+				}
+			}
+
+			/* found exact match, skip */
+			if (found)
 				continue;
 
-			if (!bms_is_member(attnum, matched))
-				newlist = lappend(newlist, varinfo);
+			/*
+			 * Look at the varinfo parts and filter the matched ones. This
+			 * is quite similar to processing of plain Vars above (the
+			 * logic evaluating them).
+			 *
+			 * XXX Maybe just removing the Var is not sufficient, and we
+			 * should "explode" the current GroupExprInfo into one element
+			 * for each Var? Consider for examle grouping by
+			 *
+			 *   a, b, (a+c), d
+			 *
+			 * with extended stats on [a,b] and [(a+c), d]. If we apply
+			 * the [a,b] first, it will remove "a" from the (a+c) item,
+			 * but then we will estimate the whole expression again when
+			 * applying [(a+c), d]. But maybe it's better than failing
+			 * to match the second statistics?
+			 */
+			varinfos = NIL;
+			foreach(lc3, exprinfo->varinfos)
+			{
+				GroupVarInfo   *varinfo = (GroupVarInfo *) lfirst(lc3);
+				Var			   *var = (Var *) varinfo->var;
+				AttrNumber		attnum;
+
+				/*
+				 * Could get expressions, not just plain Vars here. But we
+				 * don't know what to do about those, so just keep them.
+				 *
+				 * XXX Maybe we could inspect them recursively, somehow?
+				 */
+				if (!IsA(varinfo->var, Var))
+				{
+					varinfos = lappend(varinfos, varinfo);
+					continue;
+				}
+
+				attnum = var->varattno;
+
+				/*
+				 * If it's a system attribute, we have to keep it. We don't
+				 * support extended statistics on system attributes, so it's
+				 * clearly not matched. Just add the varinfo and continue.
+				 */
+				if (!AttrNumberIsForUserDefinedAttr(attnum))
+				{
+					varinfos = lappend(varinfos, varinfo);
+					continue;
+				}
+
+				/* it's a user attribute, apply the same offset as above */
+				attnum += attnum_offset;
+
+				/* if it's not matched, keep the exprinfo */
+				if (!bms_is_member(attnum, matched))
+					varinfos = lappend(varinfos, varinfo);
+			}
+
+			/* remember the recalculated (filtered) list of varinfos */
+			exprinfo->varinfos = varinfos;
+
+			/* if there are no remaining varinfos for the item, skip it */
+			if (varinfos)
+				newlist = lappend(newlist, exprinfo);
 		}
 
-		*varinfos = newlist;
+		*exprinfos = newlist;
 		*ndistinct = item->ndistinct;
 		return true;
 	}
@@ -4690,6 +5093,13 @@ get_join_variables(PlannerInfo *root, List *args, SpecialJoinInfo *sjinfo,
 		*join_is_reversed = false;
 }
 
+/* statext_expressions_load copies the tuple, so just pfree it. */
+static void
+ReleaseDummy(HeapTuple tuple)
+{
+	pfree(tuple);
+}
+
 /*
  * examine_variable
  *		Try to look up statistical data about an expression.
@@ -4830,6 +5240,7 @@ examine_variable(PlannerInfo *root, Node *node, int varRelid,
 		 * operator we are estimating for.  FIXME later.
 		 */
 		ListCell   *ilist;
+		ListCell   *slist;
 
 		foreach(ilist, onerel->indexlist)
 		{
@@ -4985,6 +5396,68 @@ examine_variable(PlannerInfo *root, Node *node, int varRelid,
 			}
 			if (vardata->statsTuple)
 				break;
+		}
+
+		/*
+		 * Search extended statistics for one with a matching expression.
+		 * There might be multiple ones, so just grab the first one. In
+		 * the future, we might consider the statistics target (and pick
+		 * the most accurate statistics) and maybe some other parameters.
+		 */
+		foreach(slist, onerel->statlist)
+		{
+			StatisticExtInfo *info = (StatisticExtInfo *) lfirst(slist);
+			ListCell   *expr_item;
+			int			pos;
+
+			/*
+			 * Stop once we've found statistics for the expression (either
+			 * from extended stats, or for an index in the preceding loop).
+			 */
+			if (vardata->statsTuple)
+				break;
+
+			/* skip stats without per-expression stats */
+			if (info->kind != STATS_EXT_EXPRESSIONS)
+				continue;
+
+			pos = 0;
+			foreach (expr_item, info->exprs)
+			{
+				Node *expr = (Node *) lfirst(expr_item);
+
+				Assert(expr);
+
+				/* strip RelabelType before comparing it */
+				if (expr && IsA(expr, RelabelType))
+					expr = (Node *) ((RelabelType *) expr)->arg;
+
+				/* found a match, see if we can extract pg_statistic row */
+				if (equal(node, expr))
+				{
+					HeapTuple t = statext_expressions_load(info->statOid, pos);
+
+					vardata->statsTuple = t;
+
+					/*
+					 * FIXME not sure if we should cache the tuple somewhere?
+					 * It's stored in a cached tuple in the "data" catalog,
+					 * and we just create a new copy every time.
+					 */
+					vardata->freefunc = ReleaseDummy;
+
+					/*
+					 * FIXME Hack to make statistic_proc_security_check happy,
+					 * so that this does not get rejected. Probably needs more
+					 * thought, just a hack.
+					 */
+					vardata->acl_ok = true;
+
+					break;
+				}
+
+				pos++;
+			}
 		}
 	}
 }
