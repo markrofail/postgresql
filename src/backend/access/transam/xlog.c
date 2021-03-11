@@ -11751,6 +11751,10 @@ read_backup_label(XLogRecPtr *checkPointLoc, bool *backupEndRequired,
 		return false;			/* it's not there, all is fine */
 	}
 
+#ifdef WIN32
+	_setmode(_fileno(lfp), _O_TEXT);
+#endif
+
 	/*
 	 * Read and parse the START WAL LOCATION and CHECKPOINT lines (this code
 	 * is pretty crude, but we are not expecting any variability in the file
@@ -11869,6 +11873,10 @@ read_tablespace_map(List **tablespaces)
 							TABLESPACE_MAP)));
 		return false;			/* it's not there, all is fine */
 	}
+
+#ifdef WIN32
+	_setmode(_fileno(lfp), _O_TEXT);
+#endif
 
 	/*
 	 * Read and parse the link name and path lines from tablespace_map file
