@@ -308,6 +308,16 @@ typedef struct StdRdOptions
 	bool		vacuum_truncate;	/* enables vacuum to truncate a relation */
 } StdRdOptions;
 
+/*
+ * PartitionedTableRdOptions
+ * 		Contents of rd_options for partitioned tables
+ */
+typedef struct PartitionedTableRdOptions
+{
+	int32		vl_len_;		/* varlena header (do not touch directly!) */
+	int			parallel_workers;	/* max number of parallel workers */
+} PartitionedTableRdOptions;
+
 #define HEAP_MIN_FILLFACTOR			10
 #define HEAP_DEFAULT_FILLFACTOR		100
 
@@ -359,7 +369,10 @@ typedef struct StdRdOptions
  */
 #define RelationGetParallelWorkers(relation, defaultpw) \
 	((relation)->rd_options ? \
-	 ((StdRdOptions *) (relation)->rd_options)->parallel_workers : (defaultpw))
+	 ((relation)->rd_rel->relkind == RELKIND_PARTITIONED_TABLE ? \
+	  ((PartitionedTableRdOptions *) (relation)->rd_options)->parallel_workers : \
+	  ((StdRdOptions *) (relation)->rd_options)->parallel_workers \
+	 ) : (defaultpw))
 
 /* ViewOptions->check_option values */
 typedef enum ViewOptCheckOption
