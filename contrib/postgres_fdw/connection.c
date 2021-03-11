@@ -48,6 +48,17 @@
  */
 typedef Oid ConnCacheKey;
 
+/*
+ * Represents whether or not the keep_connections server level option is
+ * provided by users with the foreign server.
+ */
+typedef enum KeepConnSrvOpt
+{
+	KEEP_CONN_NOT_SPECFIEID = 0, /* option not provided */
+	KEEP_CONN_SPECIFIED_TRUE = 1, /* option provided with value true */
+	KEEP_CONN_SPECIFIED_FALSE = 2 /* option provided with value false */
+} KeepConnSrvOpt;
+
 typedef struct ConnCacheEntry
 {
 	ConnCacheKey key;			/* hash key (must be first) */
@@ -62,6 +73,8 @@ typedef struct ConnCacheEntry
 	Oid			serverid;		/* foreign server OID used to get server name */
 	uint32		server_hashvalue;	/* hash value of foreign server OID */
 	uint32		mapping_hashvalue;	/* hash value of user mapping OID */
+	/* Holds the server level keep_connections option info. */
+	KeepConnSrvOpt	keep_conn_srv_opt;
 } ConnCacheEntry;
 
 /*
@@ -124,6 +137,8 @@ GetConnection(UserMapping *user, bool will_prep_stmt)
 	ConnCacheEntry *entry;
 	ConnCacheKey key;
 	MemoryContext ccxt = CurrentMemoryContext;
+	ListCell   *lc;
+	ForeignServer *server;
 
 	/* First time through, initialize connection cache hashtable */
 	if (ConnectionHash == NULL)
@@ -261,6 +276,24 @@ GetConnection(UserMapping *user, bool will_prep_stmt)
 		begin_remote_xact(entry);
 	}
 
+	server = GetForeignServer(user->serverid);
+	entry->keep_conn_srv_opt = KEEP_CONN_NOT_SPECFIEID;
+
+	foreach(lc, server->options)
+	{
+		DefElem    *def = (DefElem *) lfirst(lc);
+
+		if (strcmp(def->defname, "keep_connections") == 0)
+		{
+			bool opt_val = defGetBoolean(def);
+
+			if (opt_val)
+				entry->keep_conn_srv_opt = KEEP_CONN_SPECIFIED_TRUE;
+			else
+				entry->keep_conn_srv_opt = KEEP_CONN_SPECIFIED_FALSE;
+		}
+	}
+
 	/* Remember if caller will prepare statements */
 	entry->have_prep_stmt |= will_prep_stmt;
 
@@ -285,6 +318,7 @@ make_new_connection(ConnCacheEntry *entry, UserMapping *user)
 	entry->changing_xact_state = false;
 	entry->invalidated = false;
 	entry->serverid = server->serverid;
+	entry->keep_conn_srv_opt = KEEP_CONN_NOT_SPECFIEID;
 	entry->server_hashvalue =
 		GetSysCacheHashValue1(FOREIGNSERVEROID,
 							  ObjectIdGetDatum(server->serverid));
@@ -809,6 +843,8 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 	while ((entry = (ConnCacheEntry *) hash_seq_search(&scan)))
 	{
 		PGresult   *res;
+		bool	used_in_current_xact = false;
+		bool	discard_conn = false;
 
 		/* Ignore cache entry if no open connection right now */
 		if (entry->conn == NULL)
@@ -818,6 +854,8 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 		if (entry->xact_depth > 0)
 		{
 			bool		abort_cleanup_failure = false;
+
+			used_in_current_xact = true;
 
 			elog(DEBUG3, "closing remote transaction on connection %p",
 				 entry->conn);
@@ -952,14 +990,32 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 		entry->xact_depth = 0;
 
 		/*
+		 * Check if user wants to discard open connection used in this xact.
+		 * See keep_connections server level option if specified, otherwise use
+		 * keep_connections GUC. Note that the server level option overrides
+		 * the GUC.
+		 */
+		if (entry->conn && used_in_current_xact)
+		{
+			if ((entry->keep_conn_srv_opt == KEEP_CONN_NOT_SPECFIEID &&
+				!keep_connections) ||
+				entry->keep_conn_srv_opt == KEEP_CONN_SPECIFIED_FALSE)
+				discard_conn = true;
+
+			used_in_current_xact = false;
+		}
+
+		/*
 		 * If the connection isn't in a good idle state or it is marked as
-		 * invalid, then discard it to recover. Next GetConnection will open a
-		 * new connection.
+		 * invalid or user wants to discard open connection used in this xact,
+		 * then discard it to recover. Next GetConnection will
+		 * open a new connection.
 		 */
 		if (PQstatus(entry->conn) != CONNECTION_OK ||
 			PQtransactionStatus(entry->conn) != PQTRANS_IDLE ||
 			entry->changing_xact_state ||
-			entry->invalidated)
+			entry->invalidated ||
+			discard_conn)
 		{
 			elog(DEBUG3, "discarding connection %p", entry->conn);
 			disconnect_pg_server(entry);

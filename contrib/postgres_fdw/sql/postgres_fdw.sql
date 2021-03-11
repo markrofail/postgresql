@@ -2820,6 +2820,34 @@ DROP ROLE regress_multi_conn_user1;
 DROP ROLE regress_multi_conn_user2;
 
 -- ===================================================================
+-- Test postgres_fdw.keep_connections GUC
+-- ===================================================================
+-- By default, keep_connections GUC is on i.e. local session caches all the
+-- foreign server connections.
+SHOW postgres_fdw.keep_connections;
+-- Set it off i.e. the cached connections which are used after this setting are
+-- disconnected at the end of respective xacts.
+SET postgres_fdw.keep_connections TO off;
+-- Make connection using loopback server, connection should not be cached as
+-- the GUC is off.
+SELECT 1 FROM ft1 LIMIT 1;
+-- No cached connections, so no records should be output.
+SELECT server_name FROM postgres_fdw_get_connections() ORDER BY 1;
+
+RESET postgres_fdw.keep_connections;
+-- ===================================================================
+-- Test foreign server level option keep_connections
+-- ===================================================================
+-- By default, the connections associated with foreign server are cached i.e.
+-- keep_connections option is on. Set it to off.
+ALTER SERVER loopback OPTIONS (keep_connections 'off');
+-- loopback server connection is closed by the local session at the end of xact
+-- as the keep_connections was set to off.
+SELECT 1 FROM ft1 LIMIT 1;
+-- No cached connections, so no records should be output.
+SELECT server_name FROM postgres_fdw_get_connections() ORDER BY 1;
+ALTER SERVER loopback OPTIONS (SET keep_connections 'on');
+-- ===================================================================
 -- batch insert
 -- ===================================================================
 

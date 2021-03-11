@@ -490,6 +490,38 @@ OPTIONS (ADD password_required 'false');
    </para>
 
   </sect3>
+
+  <sect3>
+    <title>Connection Management Options</title>
+
+    <para>
+     By default the foreign server connections made with
+     <filename>postgres_fdw</filename> are kept in local session for re-use.
+     This may be overridden using the following
+     <xref linkend="sql-createserver"/> option:
+    </para>
+ 
+    <variablelist>
+ 
+     <varlistentry>
+      <term><literal>keep_connections</literal></term>
+      <listitem>
+       <para>
+        This option controls whether <filename>postgres_fdw</filename> keeps the
+        foreign server connections that are made within a local session. It can
+        be specified for each foreign server. If specified as <literal>off</literal>,
+        the associated foreign server connections are discarded at the end of
+        the transaction, otherwise the connections are kept by the local session.
+        If it's not specified at all, then the <varname>postgres_fdw.keep_connections</varname>
+        configuration parameter is used to decide whether to keep or discard
+        the foreign server connections.
+      </para>
+ 
+      </listitem>
+     </varlistentry>
+ 
+    </variablelist>
+   </sect3>
  </sect2>
 
 <sect2>
@@ -571,6 +603,51 @@ postgres=# SELECT postgres_fdw_disconnect_all();
 
 </sect2>
 
+<sect2>
+  <title>Configuration Parameters</title>
+
+  <variablelist>
+   <varlistentry>
+
+    <term>
+     <varname>postgres_fdw.keep_connections</varname> (<type>boolean</type>)
+     <indexterm>
+      <primary><varname>postgres_fdw.keep_connections</varname> configuration parameter</primary>
+     </indexterm>
+    </term>
+
+    <listitem>
+
+     <para>
+      Allows <filename>postgres_fdw</filename> to keep or discard the
+      connection made to the foreign server by the local session. Default is
+      <literal>on</literal>. When set to <literal>off</literal> the local
+      session doesn't keep the connections made to the foreign servers. Each
+      connection is discarded at the end of transaction in which it is used.
+     </para>
+
+      <para>
+       The server level <literal>keep_connections</literal> option overrides the
+       <varname>postgres_fdw.keep_connections</varname> configuration parameter
+       that is, the <varname>postgres_fdw.keep_connections</varname>
+       configuration parameter will be checked only if the server level option
+       is not specified by the user for a foreign server.
+      </para>
+
+     <para>
+      Note that setting <varname>postgres_fdw.keep_connections</varname> to
+      <literal>off</literal> does not discard any previously made and still open
+      connections immediately. They will be closed only at the end of future
+      transactions, which operated on them. Use <function>postgres_fdw_disconnect_all</function>
+      function or <function>postgres_fdw_disconnect</function> function to
+      close all or specific foreign server connections respectively.
+     </para>
+
+    </listitem>
+   </varlistentry>
+  </variablelist>
+  </sect2>
+
  <sect2>
   <title>Connection Management</title>
 
@@ -601,6 +678,21 @@ postgres=# SELECT postgres_fdw_disconnect_all();
    may be used.  For example, these are useful to close
    connections that are no longer necessary, thereby releasing
    connections on the foreign server.
+  </para>
+
+  <para>
+   Use configuration parameter <varname>postgres_fdw.keep_connections</varname>,
+   so that the local session doesn't keep any remote connections that are made
+   to the foreign servers within it. Default being <literal>on</literal>, when
+   set to <literal>off</literal>, each connection is discarded at the end of
+   local transaction in which it is used.
+  </para>
+
+  <para>
+   Use <xref linkend="sql-createserver"/> level option <literal>keep_connections</literal>
+   so that the local session doesn't keep the remote connection that is made to
+   the foreign server. Default being <literal>on</literal>, when set to <literal>off</literal>,
+   the connection is discarded at the end of local transaction in which it is used.
   </para>
  </sect2>
 

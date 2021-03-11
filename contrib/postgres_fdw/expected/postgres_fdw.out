@@ -8946,7 +8946,7 @@ DO $d$
     END;
 $d$;
 ERROR:  invalid option "password"
-HINT:  Valid options in this context are: service, passfile, channel_binding, connect_timeout, dbname, host, hostaddr, port, options, application_name, keepalives, keepalives_idle, keepalives_interval, keepalives_count, tcp_user_timeout, sslmode, sslcompression, sslcert, sslkey, sslrootcert, sslcrl, sslcrldir, requirepeer, ssl_min_protocol_version, ssl_max_protocol_version, gssencmode, krbsrvname, gsslib, target_session_attrs, use_remote_estimate, fdw_startup_cost, fdw_tuple_cost, extensions, updatable, fetch_size, batch_size
+HINT:  Valid options in this context are: service, passfile, channel_binding, connect_timeout, dbname, host, hostaddr, port, options, application_name, keepalives, keepalives_idle, keepalives_interval, keepalives_count, tcp_user_timeout, sslmode, sslcompression, sslcert, sslkey, sslrootcert, sslcrl, sslcrldir, requirepeer, ssl_min_protocol_version, ssl_max_protocol_version, gssencmode, krbsrvname, gsslib, target_session_attrs, use_remote_estimate, fdw_startup_cost, fdw_tuple_cost, extensions, updatable, fetch_size, batch_size, keep_connections
 CONTEXT:  SQL statement "ALTER SERVER loopback_nopw OPTIONS (ADD password 'dummypw')"
 PL/pgSQL function inline_code_block line 3 at EXECUTE
 -- If we add a password for our user mapping instead, we should get a different
@@ -9281,6 +9281,56 @@ DROP USER MAPPING FOR regress_multi_conn_user1 SERVER loopback;
 DROP USER MAPPING FOR regress_multi_conn_user2 SERVER loopback;
 DROP ROLE regress_multi_conn_user1;
 DROP ROLE regress_multi_conn_user2;
+-- ===================================================================
+-- Test postgres_fdw.keep_connections GUC
+-- ===================================================================
+-- By default, keep_connections GUC is on i.e. local session caches all the
+-- foreign server connections.
+SHOW postgres_fdw.keep_connections;
+ postgres_fdw.keep_connections 
+-------------------------------
+ on
+(1 row)
+
+-- Set it off i.e. the cached connections which are used after this setting are
+-- disconnected at the end of respective xacts.
+SET postgres_fdw.keep_connections TO off;
+-- Make connection using loopback server, connection should not be cached as
+-- the GUC is off.
+SELECT 1 FROM ft1 LIMIT 1;
+ ?column? 
+----------
+        1
+(1 row)
+
+-- No cached connections, so no records should be output.
+SELECT server_name FROM postgres_fdw_get_connections() ORDER BY 1;
+ server_name 
+-------------
+(0 rows)
+
+RESET postgres_fdw.keep_connections;
+-- ===================================================================
+-- Test foreign server level option keep_connections
+-- ===================================================================
+-- By default, the connections associated with foreign server are cached i.e.
+-- keep_connections option is on. Set it to off.
+ALTER SERVER loopback OPTIONS (keep_connections 'off');
+-- loopback server connection is closed by the local session at the end of xact
+-- as the keep_connections was set to off.
+SELECT 1 FROM ft1 LIMIT 1;
+ ?column? 
+----------
+        1
+(1 row)
+
+-- No cached connections, so no records should be output.
+SELECT server_name FROM postgres_fdw_get_connections() ORDER BY 1;
+ server_name 
+-------------
+(0 rows)
+
+ALTER SERVER loopback OPTIONS (SET keep_connections 'on');
 -- ===================================================================
 -- batch insert
 -- ===================================================================

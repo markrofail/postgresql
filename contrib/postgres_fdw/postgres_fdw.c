@@ -312,6 +312,8 @@ typedef struct
 	List	   *already_used;	/* expressions already dealt with */
 } ec_member_foreign_arg;
 
+bool keep_connections = true;
+
 /*
  * SQL functions
  */
@@ -527,6 +529,20 @@ static void merge_fdw_options(PgFdwRelationInfo *fpinfo,
 							  const PgFdwRelationInfo *fpinfo_i);
 static int get_batch_size_option(Relation rel);
 
+void
+_PG_init(void)
+{
+	DefineCustomBoolVariable("postgres_fdw.keep_connections",
+							 "Enables postgres_fdw connection caching.",
+							 "When off postgres_fdw will close connections at the end of transaction.",
+							 &keep_connections,
+							 true,
+							 PGC_USERSET,
+							 0,
+							 NULL,
+							 NULL,
+							 NULL);
+}
 
 /*
  * Foreign-data wrapper handler function: return a struct with pointers
