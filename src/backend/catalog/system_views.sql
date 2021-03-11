@@ -510,6 +510,447 @@ FROM
     pg_shseclabel l
     JOIN pg_authid rol ON l.classoid = rol.tableoid AND l.objoid = rol.oid;
 
+CREATE VIEW pg_permissions AS
+SELECT
+  a.classid,
+  a.objid,
+  a.objsubid,a.objdesc,
+  a.grantor::regrole,
+  a.grantee::regrole,
+  a.privilege_type,
+  a.is_grantable
+FROM
+(
+  SELECT
+    'pg_class'::regclass AS classid,
+    aa.attrelid AS objid,
+    aa.attnum AS objsubid,
+    pg_describe_object('pg_class'::regclass,aa.attrelid,aa.attnum) AS objdesc,
+    (aclexplode(aa.attacl)).*
+  FROM pg_catalog.pg_attribute AS aa
+) AS a
+UNION ALL
+SELECT
+  a.classid,
+  a.objid,
+  a.objsubid,a.objdesc,
+  a.grantor::regrole,
+  a.grantee::regrole,
+  a.privilege_type,
+  a.is_grantable
+FROM
+(
+  SELECT
+    'pg_class'::regclass AS classid,
+    aa.oid AS objid,
+    0 AS objsubid,
+    pg_describe_object('pg_class'::regclass,aa.oid,0) AS objdesc,
+    (aclexplode(aa.relacl)).*
+  FROM pg_catalog.pg_class AS aa
+) AS a
+UNION ALL
+SELECT
+  a.classid,
+  a.objid,
+  a.objsubid,a.objdesc,
+  a.grantor::regrole,
+  a.grantee::regrole,
+  a.privilege_type,
+  a.is_grantable
+FROM
+(
+  SELECT
+    'pg_database'::regclass AS classid,
+    aa.oid AS objid,
+    0 AS objsubid,
+    pg_describe_object('pg_database'::regclass,aa.oid,0) AS objdesc,
+    (aclexplode(aa.datacl)).*
+  FROM pg_catalog.pg_database AS aa
+) AS a
+UNION ALL
+SELECT
+  a.classid,
+  a.objid,
+  a.objsubid,a.objdesc,
+  a.grantor::regrole,
+  a.grantee::regrole,
+  a.privilege_type,
+  a.is_grantable
+FROM
+(
+  SELECT
+    'pg_default_acl'::regclass AS classid,
+    aa.oid AS objid,
+    0 AS objsubid,
+    pg_describe_object('pg_default_acl'::regclass,aa.oid,0) AS objdesc,
+    (aclexplode(aa.defaclacl)).*
+  FROM pg_catalog.pg_default_acl AS aa
+) AS a
+UNION ALL
+SELECT
+  a.classid,
+  a.objid,
+  a.objsubid,a.objdesc,
+  a.grantor::regrole,
+  a.grantee::regrole,
+  a.privilege_type,
+  a.is_grantable
+FROM
+(
+  SELECT
+    'pg_foreign_data_wrapper'::regclass AS classid,
+    aa.oid AS objid,
+    0 AS objsubid,
+    pg_describe_object('pg_foreign_data_wrapper'::regclass,aa.oid,0) AS objdesc,
+    (aclexplode(aa.fdwacl)).*
+  FROM pg_catalog.pg_foreign_data_wrapper AS aa
+) AS a
+UNION ALL
+SELECT
+  a.classid,
+  a.objid,
+  a.objsubid,a.objdesc,
+  a.grantor::regrole,
+  a.grantee::regrole,
+  a.privilege_type,
+  a.is_grantable
+FROM
+(
+  SELECT
+    'pg_foreign_server'::regclass AS classid,
+    aa.oid AS objid,
+    0 AS objsubid,
+    pg_describe_object('pg_foreign_server'::regclass,aa.oid,0) AS objdesc,
+    (aclexplode(aa.srvacl)).*
+  FROM pg_catalog.pg_foreign_server AS aa
+) AS a
+UNION ALL
+SELECT
+  a.classid,
+  a.objid,
+  a.objsubid,a.objdesc,
+  a.grantor::regrole,
+  a.grantee::regrole,
+  a.privilege_type,
+  a.is_grantable
+FROM
+(
+  SELECT
+    aa.classoid::regclass AS classid,
+    aa.objoid AS objid,
+    aa.objsubid AS objsubid,
+    pg_describe_object(aa.classoid,aa.objoid,aa.objsubid) AS objdesc,
+    (aclexplode(aa.initprivs)).*
+  FROM pg_catalog.pg_init_privs AS aa
+) AS a
+UNION ALL
+SELECT
+  a.classid,
+  a.objid,
+  a.objsubid,a.objdesc,
+  a.grantor::regrole,
+  a.grantee::regrole,
+  a.privilege_type,
+  a.is_grantable
+FROM
+(
+  SELECT
+    'pg_language'::regclass AS classid,
+    aa.oid AS objid,
+    0 AS objsubid,
+    pg_describe_object('pg_language'::regclass,aa.oid,0) AS objdesc,
+    (aclexplode(aa.lanacl)).*
+  FROM pg_catalog.pg_language AS aa
+) AS a
+UNION ALL
+SELECT
+  a.classid,
+  a.objid,
+  a.objsubid,a.objdesc,
+  a.grantor::regrole,
+  a.grantee::regrole,
+  a.privilege_type,
+  a.is_grantable
+FROM
+(
+  SELECT
+    'pg_largeobject_metadata'::regclass AS classid,
+    aa.oid AS objid,
+    0 AS objsubid,
+    pg_describe_object('pg_largeobject_metadata'::regclass,aa.oid,0) AS objdesc,
+    (aclexplode(aa.lomacl)).*
+  FROM pg_catalog.pg_largeobject_metadata AS aa
+) AS a
+UNION ALL
+SELECT
+  a.classid,
+  a.objid,
+  a.objsubid,a.objdesc,
+  a.grantor::regrole,
+  a.grantee::regrole,
+  a.privilege_type,
+  a.is_grantable
+FROM
+(
+  SELECT
+    'pg_namespace'::regclass AS classid,
+    aa.oid AS objid,
+    0 AS objsubid,
+    pg_describe_object('pg_namespace'::regclass,aa.oid,0) AS objdesc,
+    (aclexplode(aa.nspacl)).*
+  FROM pg_catalog.pg_namespace AS aa
+) AS a
+UNION ALL
+SELECT
+  a.classid,
+  a.objid,
+  a.objsubid,a.objdesc,
+  a.grantor::regrole,
+  a.grantee::regrole,
+  a.privilege_type,
+  a.is_grantable
+FROM
+(
+  SELECT
+    'pg_proc'::regclass AS classid,
+    aa.oid AS objid,
+    0 AS objsubid,
+    pg_describe_object('pg_proc'::regclass,aa.oid,0) AS objdesc,
+    (aclexplode(aa.proacl)).*
+  FROM pg_catalog.pg_proc AS aa
+) AS a
+UNION ALL
+SELECT
+  a.classid,
+  a.objid,
+  a.objsubid,a.objdesc,
+  a.grantor::regrole,
+  a.grantee::regrole,
+  a.privilege_type,
+  a.is_grantable
+FROM
+(
+  SELECT
+    'pg_tablespace'::regclass AS classid,
+    aa.oid AS objid,
+    0 AS objsubid,
+    pg_describe_object('pg_tablespace'::regclass,aa.oid,0) AS objdesc,
+    (aclexplode(aa.spcacl)).*
+  FROM pg_catalog.pg_tablespace AS aa
+) AS a
+UNION ALL
+SELECT
+  a.classid,
+  a.objid,
+  a.objsubid,a.objdesc,
+  a.grantor::regrole,
+  a.grantee::regrole,
+  a.privilege_type,
+  a.is_grantable
+FROM
+(
+  SELECT
+    'pg_type'::regclass AS classid,
+    aa.oid AS objid,
+    0 AS objsubid,
+    pg_describe_object('pg_type'::regclass,aa.oid,0) AS objdesc,
+    (aclexplode(aa.typacl)).*
+  FROM pg_catalog.pg_type AS aa
+) AS a;
+
+CREATE VIEW pg_ownerships AS
+  SELECT
+    'pg_class'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object('pg_class'::regclass,a.oid,0)
+    AS objdesc,
+    a.relowner::regrole AS owner
+  FROM pg_catalog.pg_class AS a
+UNION ALL
+  SELECT
+    'pg_collation'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object('pg_collation'::regclass,a.oid,0)
+    AS objdesc,
+    a.collowner::regrole AS owner
+  FROM pg_catalog.pg_collation AS a
+UNION ALL
+  SELECT
+    'pg_conversion'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object('pg_conversion'::regclass,a.oid,0)
+    AS objdesc,
+    a.conowner::regrole AS owner
+  FROM pg_catalog.pg_conversion AS a
+UNION ALL
+  SELECT
+    'pg_database'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object('pg_database'::regclass,a.oid,0)
+    AS objdesc,
+    a.datdba::regrole AS owner
+  FROM pg_catalog.pg_database AS a
+UNION ALL
+  SELECT
+    'pg_default_acl'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object('pg_default_acl'::regclass,a.oid,0)
+    AS objdesc,
+    a.defaclrole::regrole AS owner
+  FROM pg_catalog.pg_default_acl AS a
+UNION ALL
+  SELECT
+    'pg_event_trigger'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object('pg_event_trigger'::regclass,a.oid,0)
+    AS objdesc,
+    a.evtowner::regrole AS owner
+  FROM pg_catalog.pg_event_trigger AS a
+UNION ALL
+  SELECT
+    'pg_extension'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object('pg_extension'::regclass,a.oid,0)
+    AS objdesc,
+    a.extowner::regrole AS owner
+  FROM pg_catalog.pg_extension AS a
+UNION ALL
+  SELECT
+    'pg_foreign_data_wrapper'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object('pg_foreign_data_wrapper'::regclass,a.oid,0)
+    AS objdesc,
+    a.fdwowner::regrole AS owner
+  FROM pg_catalog.pg_foreign_data_wrapper AS a
+UNION ALL
+  SELECT
+    'pg_foreign_server'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object('pg_foreign_server'::regclass,a.oid,0)
+    AS objdesc,
+    a.srvowner::regrole AS owner
+  FROM pg_catalog.pg_foreign_server AS a
+UNION ALL
+  SELECT
+    'pg_language'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object('pg_language'::regclass,a.oid,0)
+    AS objdesc,
+    a.lanowner::regrole AS owner
+  FROM pg_catalog.pg_language AS a
+UNION ALL
+  SELECT
+    'pg_largeobject_metadata'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object('pg_largeobject_metadata'::regclass,a.oid,0)
+    AS objdesc,
+    a.lomowner::regrole AS owner
+  FROM pg_catalog.pg_largeobject_metadata AS a
+UNION ALL
+  SELECT
+    'pg_namespace'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object('pg_namespace'::regclass,a.oid,0)
+    AS objdesc,
+    a.nspowner::regrole AS owner
+  FROM pg_catalog.pg_namespace AS a
+UNION ALL
+  SELECT
+    'pg_opclass'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object('pg_opclass'::regclass,a.oid,0)
+    AS objdesc,
+    a.opcowner::regrole AS owner
+  FROM pg_catalog.pg_opclass AS a
+UNION ALL
+  SELECT
+    'pg_operator'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object('pg_operator'::regclass,a.oid,0)
+    AS objdesc,
+    a.oprowner::regrole AS owner
+  FROM pg_catalog.pg_operator AS a
+UNION ALL
+  SELECT
+    'pg_opfamily'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object('pg_opfamily'::regclass,a.oid,0)
+    AS objdesc,
+    a.opfowner::regrole AS owner
+  FROM pg_catalog.pg_opfamily AS a
+UNION ALL
+  SELECT
+    'pg_policy'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object('pg_policy'::regclass,a.oid,0)
+    AS objdesc,
+    unnest(a.polroles)::regrole AS owner
+  FROM pg_catalog.pg_policy AS a
+UNION ALL
+  SELECT
+    'pg_proc'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object('pg_proc'::regclass,a.oid,0)
+    AS objdesc,
+    a.proowner::regrole AS owner
+  FROM pg_catalog.pg_proc AS a
+UNION ALL
+  SELECT
+    'pg_publication'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object('pg_publication'::regclass,a.oid,0)
+    AS objdesc,
+    a.pubowner::regrole AS owner
+  FROM pg_catalog.pg_publication AS a
+UNION ALL
+  SELECT
+    'pg_statistic_ext'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object('pg_statistic_ext'::regclass,a.oid,0)
+    AS objdesc,
+    a.stxowner::regrole AS owner
+  FROM pg_catalog.pg_statistic_ext AS a
+UNION ALL
+  SELECT
+    'pg_subscription'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object('pg_subscription'::regclass,a.oid,0)
+    AS objdesc,
+    a.subowner::regrole AS owner
+  FROM pg_catalog.pg_subscription AS a
+UNION ALL
+  SELECT
+    'pg_tablespace'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object('pg_tablespace'::regclass,a.oid,0)
+    AS objdesc,
+    a.spcowner::regrole AS owner
+  FROM pg_catalog.pg_tablespace AS a
+UNION ALL
+  SELECT
+    'pg_ts_config'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object('pg_ts_config'::regclass,a.oid,0)
+    AS objdesc,
+    a.cfgowner::regrole AS owner
+  FROM pg_catalog.pg_ts_config AS a
+UNION ALL
+  SELECT
+    'pg_ts_dict'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object('pg_ts_dict'::regclass,a.oid,0)
+    AS objdesc,
+    a.dictowner::regrole AS owner
+  FROM pg_catalog.pg_ts_dict AS a
+UNION ALL
+  SELECT
+    'pg_type'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object('pg_type'::regclass,a.oid,0)
+    AS objdesc,
+    a.typowner::regrole AS owner
+  FROM pg_catalog.pg_type AS a;
+
 CREATE VIEW pg_settings AS
     SELECT * FROM pg_show_all_settings() AS A;
 

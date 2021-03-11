@@ -1408,6 +1408,382 @@ pg_matviews| SELECT n.nspname AS schemaname,
      LEFT JOIN pg_namespace n ON ((n.oid = c.relnamespace)))
      LEFT JOIN pg_tablespace t ON ((t.oid = c.reltablespace)))
   WHERE (c.relkind = 'm'::"char");
+pg_ownerships| SELECT 'pg_class'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object(('pg_class'::regclass)::oid, a.oid, 0) AS objdesc,
+    (a.relowner)::regrole AS owner
+   FROM pg_class a
+UNION ALL
+ SELECT 'pg_collation'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object(('pg_collation'::regclass)::oid, a.oid, 0) AS objdesc,
+    (a.collowner)::regrole AS owner
+   FROM pg_collation a
+UNION ALL
+ SELECT 'pg_conversion'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object(('pg_conversion'::regclass)::oid, a.oid, 0) AS objdesc,
+    (a.conowner)::regrole AS owner
+   FROM pg_conversion a
+UNION ALL
+ SELECT 'pg_database'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object(('pg_database'::regclass)::oid, a.oid, 0) AS objdesc,
+    (a.datdba)::regrole AS owner
+   FROM pg_database a
+UNION ALL
+ SELECT 'pg_default_acl'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object(('pg_default_acl'::regclass)::oid, a.oid, 0) AS objdesc,
+    (a.defaclrole)::regrole AS owner
+   FROM pg_default_acl a
+UNION ALL
+ SELECT 'pg_event_trigger'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object(('pg_event_trigger'::regclass)::oid, a.oid, 0) AS objdesc,
+    (a.evtowner)::regrole AS owner
+   FROM pg_event_trigger a
+UNION ALL
+ SELECT 'pg_extension'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object(('pg_extension'::regclass)::oid, a.oid, 0) AS objdesc,
+    (a.extowner)::regrole AS owner
+   FROM pg_extension a
+UNION ALL
+ SELECT 'pg_foreign_data_wrapper'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object(('pg_foreign_data_wrapper'::regclass)::oid, a.oid, 0) AS objdesc,
+    (a.fdwowner)::regrole AS owner
+   FROM pg_foreign_data_wrapper a
+UNION ALL
+ SELECT 'pg_foreign_server'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object(('pg_foreign_server'::regclass)::oid, a.oid, 0) AS objdesc,
+    (a.srvowner)::regrole AS owner
+   FROM pg_foreign_server a
+UNION ALL
+ SELECT 'pg_language'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object(('pg_language'::regclass)::oid, a.oid, 0) AS objdesc,
+    (a.lanowner)::regrole AS owner
+   FROM pg_language a
+UNION ALL
+ SELECT 'pg_largeobject_metadata'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object(('pg_largeobject_metadata'::regclass)::oid, a.oid, 0) AS objdesc,
+    (a.lomowner)::regrole AS owner
+   FROM pg_largeobject_metadata a
+UNION ALL
+ SELECT 'pg_namespace'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object(('pg_namespace'::regclass)::oid, a.oid, 0) AS objdesc,
+    (a.nspowner)::regrole AS owner
+   FROM pg_namespace a
+UNION ALL
+ SELECT 'pg_opclass'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object(('pg_opclass'::regclass)::oid, a.oid, 0) AS objdesc,
+    (a.opcowner)::regrole AS owner
+   FROM pg_opclass a
+UNION ALL
+ SELECT 'pg_operator'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object(('pg_operator'::regclass)::oid, a.oid, 0) AS objdesc,
+    (a.oprowner)::regrole AS owner
+   FROM pg_operator a
+UNION ALL
+ SELECT 'pg_opfamily'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object(('pg_opfamily'::regclass)::oid, a.oid, 0) AS objdesc,
+    (a.opfowner)::regrole AS owner
+   FROM pg_opfamily a
+UNION ALL
+ SELECT 'pg_policy'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object(('pg_policy'::regclass)::oid, a.oid, 0) AS objdesc,
+    (unnest(a.polroles))::regrole AS owner
+   FROM pg_policy a
+UNION ALL
+ SELECT 'pg_proc'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object(('pg_proc'::regclass)::oid, a.oid, 0) AS objdesc,
+    (a.proowner)::regrole AS owner
+   FROM pg_proc a
+UNION ALL
+ SELECT 'pg_publication'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object(('pg_publication'::regclass)::oid, a.oid, 0) AS objdesc,
+    (a.pubowner)::regrole AS owner
+   FROM pg_publication a
+UNION ALL
+ SELECT 'pg_statistic_ext'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object(('pg_statistic_ext'::regclass)::oid, a.oid, 0) AS objdesc,
+    (a.stxowner)::regrole AS owner
+   FROM pg_statistic_ext a
+UNION ALL
+ SELECT 'pg_subscription'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object(('pg_subscription'::regclass)::oid, a.oid, 0) AS objdesc,
+    (a.subowner)::regrole AS owner
+   FROM pg_subscription a
+UNION ALL
+ SELECT 'pg_tablespace'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object(('pg_tablespace'::regclass)::oid, a.oid, 0) AS objdesc,
+    (a.spcowner)::regrole AS owner
+   FROM pg_tablespace a
+UNION ALL
+ SELECT 'pg_ts_config'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object(('pg_ts_config'::regclass)::oid, a.oid, 0) AS objdesc,
+    (a.cfgowner)::regrole AS owner
+   FROM pg_ts_config a
+UNION ALL
+ SELECT 'pg_ts_dict'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object(('pg_ts_dict'::regclass)::oid, a.oid, 0) AS objdesc,
+    (a.dictowner)::regrole AS owner
+   FROM pg_ts_dict a
+UNION ALL
+ SELECT 'pg_type'::regclass AS classid,
+    a.oid AS objid,
+    pg_describe_object(('pg_type'::regclass)::oid, a.oid, 0) AS objdesc,
+    (a.typowner)::regrole AS owner
+   FROM pg_type a;
+pg_permissions| SELECT a.classid,
+    a.objid,
+    a.objsubid,
+    a.objdesc,
+    (a.grantor)::regrole AS grantor,
+    (a.grantee)::regrole AS grantee,
+    a.privilege_type,
+    a.is_grantable
+   FROM ( SELECT 'pg_class'::regclass AS classid,
+            aa.attrelid AS objid,
+            aa.attnum AS objsubid,
+            pg_describe_object(('pg_class'::regclass)::oid, aa.attrelid, (aa.attnum)::integer) AS objdesc,
+            (aclexplode(aa.attacl)).grantor AS grantor,
+            (aclexplode(aa.attacl)).grantee AS grantee,
+            (aclexplode(aa.attacl)).privilege_type AS privilege_type,
+            (aclexplode(aa.attacl)).is_grantable AS is_grantable
+           FROM pg_attribute aa) a
+UNION ALL
+ SELECT a.classid,
+    a.objid,
+    a.objsubid,
+    a.objdesc,
+    (a.grantor)::regrole AS grantor,
+    (a.grantee)::regrole AS grantee,
+    a.privilege_type,
+    a.is_grantable
+   FROM ( SELECT 'pg_class'::regclass AS classid,
+            aa.oid AS objid,
+            0 AS objsubid,
+            pg_describe_object(('pg_class'::regclass)::oid, aa.oid, 0) AS objdesc,
+            (aclexplode(aa.relacl)).grantor AS grantor,
+            (aclexplode(aa.relacl)).grantee AS grantee,
+            (aclexplode(aa.relacl)).privilege_type AS privilege_type,
+            (aclexplode(aa.relacl)).is_grantable AS is_grantable
+           FROM pg_class aa) a
+UNION ALL
+ SELECT a.classid,
+    a.objid,
+    a.objsubid,
+    a.objdesc,
+    (a.grantor)::regrole AS grantor,
+    (a.grantee)::regrole AS grantee,
+    a.privilege_type,
+    a.is_grantable
+   FROM ( SELECT 'pg_database'::regclass AS classid,
+            aa.oid AS objid,
+            0 AS objsubid,
+            pg_describe_object(('pg_database'::regclass)::oid, aa.oid, 0) AS objdesc,
+            (aclexplode(aa.datacl)).grantor AS grantor,
+            (aclexplode(aa.datacl)).grantee AS grantee,
+            (aclexplode(aa.datacl)).privilege_type AS privilege_type,
+            (aclexplode(aa.datacl)).is_grantable AS is_grantable
+           FROM pg_database aa) a
+UNION ALL
+ SELECT a.classid,
+    a.objid,
+    a.objsubid,
+    a.objdesc,
+    (a.grantor)::regrole AS grantor,
+    (a.grantee)::regrole AS grantee,
+    a.privilege_type,
+    a.is_grantable
+   FROM ( SELECT 'pg_default_acl'::regclass AS classid,
+            aa.oid AS objid,
+            0 AS objsubid,
+            pg_describe_object(('pg_default_acl'::regclass)::oid, aa.oid, 0) AS objdesc,
+            (aclexplode(aa.defaclacl)).grantor AS grantor,
+            (aclexplode(aa.defaclacl)).grantee AS grantee,
+            (aclexplode(aa.defaclacl)).privilege_type AS privilege_type,
+            (aclexplode(aa.defaclacl)).is_grantable AS is_grantable
+           FROM pg_default_acl aa) a
+UNION ALL
+ SELECT a.classid,
+    a.objid,
+    a.objsubid,
+    a.objdesc,
+    (a.grantor)::regrole AS grantor,
+    (a.grantee)::regrole AS grantee,
+    a.privilege_type,
+    a.is_grantable
+   FROM ( SELECT 'pg_foreign_data_wrapper'::regclass AS classid,
+            aa.oid AS objid,
+            0 AS objsubid,
+            pg_describe_object(('pg_foreign_data_wrapper'::regclass)::oid, aa.oid, 0) AS objdesc,
+            (aclexplode(aa.fdwacl)).grantor AS grantor,
+            (aclexplode(aa.fdwacl)).grantee AS grantee,
+            (aclexplode(aa.fdwacl)).privilege_type AS privilege_type,
+            (aclexplode(aa.fdwacl)).is_grantable AS is_grantable
+           FROM pg_foreign_data_wrapper aa) a
+UNION ALL
+ SELECT a.classid,
+    a.objid,
+    a.objsubid,
+    a.objdesc,
+    (a.grantor)::regrole AS grantor,
+    (a.grantee)::regrole AS grantee,
+    a.privilege_type,
+    a.is_grantable
+   FROM ( SELECT 'pg_foreign_server'::regclass AS classid,
+            aa.oid AS objid,
+            0 AS objsubid,
+            pg_describe_object(('pg_foreign_server'::regclass)::oid, aa.oid, 0) AS objdesc,
+            (aclexplode(aa.srvacl)).grantor AS grantor,
+            (aclexplode(aa.srvacl)).grantee AS grantee,
+            (aclexplode(aa.srvacl)).privilege_type AS privilege_type,
+            (aclexplode(aa.srvacl)).is_grantable AS is_grantable
+           FROM pg_foreign_server aa) a
+UNION ALL
+ SELECT a.classid,
+    a.objid,
+    a.objsubid,
+    a.objdesc,
+    (a.grantor)::regrole AS grantor,
+    (a.grantee)::regrole AS grantee,
+    a.privilege_type,
+    a.is_grantable
+   FROM ( SELECT (aa.classoid)::regclass AS classid,
+            aa.objoid AS objid,
+            aa.objsubid,
+            pg_describe_object(aa.classoid, aa.objoid, aa.objsubid) AS objdesc,
+            (aclexplode(aa.initprivs)).grantor AS grantor,
+            (aclexplode(aa.initprivs)).grantee AS grantee,
+            (aclexplode(aa.initprivs)).privilege_type AS privilege_type,
+            (aclexplode(aa.initprivs)).is_grantable AS is_grantable
+           FROM pg_init_privs aa) a
+UNION ALL
+ SELECT a.classid,
+    a.objid,
+    a.objsubid,
+    a.objdesc,
+    (a.grantor)::regrole AS grantor,
+    (a.grantee)::regrole AS grantee,
+    a.privilege_type,
+    a.is_grantable
+   FROM ( SELECT 'pg_language'::regclass AS classid,
+            aa.oid AS objid,
+            0 AS objsubid,
+            pg_describe_object(('pg_language'::regclass)::oid, aa.oid, 0) AS objdesc,
+            (aclexplode(aa.lanacl)).grantor AS grantor,
+            (aclexplode(aa.lanacl)).grantee AS grantee,
+            (aclexplode(aa.lanacl)).privilege_type AS privilege_type,
+            (aclexplode(aa.lanacl)).is_grantable AS is_grantable
+           FROM pg_language aa) a
+UNION ALL
+ SELECT a.classid,
+    a.objid,
+    a.objsubid,
+    a.objdesc,
+    (a.grantor)::regrole AS grantor,
+    (a.grantee)::regrole AS grantee,
+    a.privilege_type,
+    a.is_grantable
+   FROM ( SELECT 'pg_largeobject_metadata'::regclass AS classid,
+            aa.oid AS objid,
+            0 AS objsubid,
+            pg_describe_object(('pg_largeobject_metadata'::regclass)::oid, aa.oid, 0) AS objdesc,
+            (aclexplode(aa.lomacl)).grantor AS grantor,
+            (aclexplode(aa.lomacl)).grantee AS grantee,
+            (aclexplode(aa.lomacl)).privilege_type AS privilege_type,
+            (aclexplode(aa.lomacl)).is_grantable AS is_grantable
+           FROM pg_largeobject_metadata aa) a
+UNION ALL
+ SELECT a.classid,
+    a.objid,
+    a.objsubid,
+    a.objdesc,
+    (a.grantor)::regrole AS grantor,
+    (a.grantee)::regrole AS grantee,
+    a.privilege_type,
+    a.is_grantable
+   FROM ( SELECT 'pg_namespace'::regclass AS classid,
+            aa.oid AS objid,
+            0 AS objsubid,
+            pg_describe_object(('pg_namespace'::regclass)::oid, aa.oid, 0) AS objdesc,
+            (aclexplode(aa.nspacl)).grantor AS grantor,
+            (aclexplode(aa.nspacl)).grantee AS grantee,
+            (aclexplode(aa.nspacl)).privilege_type AS privilege_type,
+            (aclexplode(aa.nspacl)).is_grantable AS is_grantable
+           FROM pg_namespace aa) a
+UNION ALL
+ SELECT a.classid,
+    a.objid,
+    a.objsubid,
+    a.objdesc,
+    (a.grantor)::regrole AS grantor,
+    (a.grantee)::regrole AS grantee,
+    a.privilege_type,
+    a.is_grantable
+   FROM ( SELECT 'pg_proc'::regclass AS classid,
+            aa.oid AS objid,
+            0 AS objsubid,
+            pg_describe_object(('pg_proc'::regclass)::oid, aa.oid, 0) AS objdesc,
+            (aclexplode(aa.proacl)).grantor AS grantor,
+            (aclexplode(aa.proacl)).grantee AS grantee,
+            (aclexplode(aa.proacl)).privilege_type AS privilege_type,
+            (aclexplode(aa.proacl)).is_grantable AS is_grantable
+           FROM pg_proc aa) a
+UNION ALL
+ SELECT a.classid,
+    a.objid,
+    a.objsubid,
+    a.objdesc,
+    (a.grantor)::regrole AS grantor,
+    (a.grantee)::regrole AS grantee,
+    a.privilege_type,
+    a.is_grantable
+   FROM ( SELECT 'pg_tablespace'::regclass AS classid,
+            aa.oid AS objid,
+            0 AS objsubid,
+            pg_describe_object(('pg_tablespace'::regclass)::oid, aa.oid, 0) AS objdesc,
+            (aclexplode(aa.spcacl)).grantor AS grantor,
+            (aclexplode(aa.spcacl)).grantee AS grantee,
+            (aclexplode(aa.spcacl)).privilege_type AS privilege_type,
+            (aclexplode(aa.spcacl)).is_grantable AS is_grantable
+           FROM pg_tablespace aa) a
+UNION ALL
+ SELECT a.classid,
+    a.objid,
+    a.objsubid,
+    a.objdesc,
+    (a.grantor)::regrole AS grantor,
+    (a.grantee)::regrole AS grantee,
+    a.privilege_type,
+    a.is_grantable
+   FROM ( SELECT 'pg_type'::regclass AS classid,
+            aa.oid AS objid,
+            0 AS objsubid,
+            pg_describe_object(('pg_type'::regclass)::oid, aa.oid, 0) AS objdesc,
+            (aclexplode(aa.typacl)).grantor AS grantor,
+            (aclexplode(aa.typacl)).grantee AS grantee,
+            (aclexplode(aa.typacl)).privilege_type AS privilege_type,
+            (aclexplode(aa.typacl)).is_grantable AS is_grantable
+           FROM pg_type aa) a;
 pg_policies| SELECT n.nspname AS schemaname,
     c.relname AS tablename,
     pol.polname AS policyname,
