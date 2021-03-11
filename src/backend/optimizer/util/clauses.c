@@ -1192,11 +1192,15 @@ target_rel_partitions_max_parallel_hazard(Relation rel,
 
 	/* Recursively check each partition ... */
 
-	/* Create the PartitionDirectory infrastructure if we didn't already */
+	/*
+	 * Create the PartitionDirectory infrastructure if we didn't already. Must
+	 * match args used in set_relation_partition_info.
+	 */
 	glob = context->planner_global;
 	if (glob->partition_directory == NULL)
 		glob->partition_directory =
-			CreatePartitionDirectory(CurrentMemoryContext);
+			CreatePartitionDirectory(CurrentMemoryContext,
+									 IsolationUsesXactSnapshot());
 
 	pdesc = PartitionDirectoryLookup(glob->partition_directory, rel);
 
