@@ -3877,6 +3877,7 @@ initGenerateDataClientSide(PGconn *con)
 	PGresult   *res;
 	int			i;
 	int64		k;
+	int			server_version;
 
 	/* used to track elapsed time and estimate of the remaining time */
 	pg_time_usec_t start;
@@ -3923,7 +3924,23 @@ initGenerateDataClientSide(PGconn *con)
 	/*
 	 * accounts is big enough to be worth using COPY and tracking runtime
 	 */
-	res = PQexec(con, "copy pgbench_accounts from stdin");
+	
+	server_version = PQserverVersion(con);
+	if (server_version == 0)
+	{
+		pg_log_fatal("could not get server version");
+		exit(1);
+	}
+		
+	/*
+	 * If server version is 14.0 or later, we can take account of freeze
+	 * option of copy.
+	 */
+	if (server_version >= 140000)
+		res = PQexec(con, "copy pgbench_accounts from stdin with (freeze on)");
+	else
+		res = PQexec(con, "copy pgbench_accounts from stdin");
+
 	if (PQresultStatus(res) != PGRES_COPY_IN)
 	{
 		pg_log_fatal("unexpected copy in result: %s", PQerrorMessage(con));
