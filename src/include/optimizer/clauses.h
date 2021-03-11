@@ -54,4 +54,6 @@ extern Query *inline_set_returning_function(PlannerInfo *root,
 											RangeTblEntry *rte);
 extern bool is_parallel_allowed_for_modify(Query *parse);
 
+extern double find_var_dependency(PlannerInfo *root, Index relid, Var *var, Bitmapset *attnums);
+
 #endif							/* CLAUSES_H */
