@@ -685,7 +685,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 
 	RANGE READ REAL REASSIGN RECHECK RECURSIVE REF REFERENCES REFERENCING
 	REFRESH REINDEX RELATIVE_P RELEASE RENAME REPEATABLE REPLACE REPLICA
-	RESET RESTART RESTRICT RETURNING RETURNS REVOKE RIGHT ROLE ROLLBACK ROLLUP
+	RESET RESTART RESTRICT RETURNING RETURNS REVOKE RIGHT RIPLANS ROLE ROLLBACK ROLLUP
 	ROUTINE ROUTINES ROW ROWS RULE
 
 	SAVEPOINT SCHEMA SCHEMAS SCROLL SEARCH SECOND_P SECURITY SELECT SEQUENCE SEQUENCES
@@ -1830,7 +1830,7 @@ CheckPointStmt:
 
 /*****************************************************************************
  *
- * DISCARD { ALL | TEMP | PLANS | SEQUENCES }
+ * DISCARD { ALL | TEMP | PLANS | SEQUENCES | RIPLANS }
  *
  *****************************************************************************/
 
@@ -1865,7 +1865,12 @@ DiscardStmt:
 					n->target = DISCARD_SEQUENCES;
 					$$ = (Node *) n;
 				}
-
+			| DISCARD RIPLANS
+				{
+					DiscardStmt *n = makeNode(DiscardStmt);
+					n->target = DISCARD_RIPLANS;
+					$$ = (Node *) n;
+				}
 		;
 
 
@@ -15656,6 +15661,7 @@ type_func_name_keyword:
 			| OUTER_P
 			| OVERLAPS
 			| RIGHT
+			| RIPLANS
 			| SIMILAR
 			| TABLESAMPLE
 			| VERBOSE
@@ -16053,6 +16059,7 @@ bare_label_keyword:
 			| RETURNS
 			| REVOKE
 			| RIGHT
+			| RIPLANS
 			| ROLE
 			| ROLLBACK
 			| ROLLUP
