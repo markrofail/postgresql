@@ -2460,25 +2460,9 @@ column_privilege_check(Oid tableoid, AttrNumber attnum,
 		return -1;
 
 	/*
-	 * First check if we have the privilege at the table level.  We check
-	 * existence of the pg_class row before risking calling pg_class_aclcheck.
-	 * Note: it might seem there's a race condition against concurrent DROP,
-	 * but really it's safe because there will be no syscache flush between
-	 * here and there.  So if we see the row in the syscache, so will
-	 * pg_class_aclcheck.
-	 */
-	if (!SearchSysCacheExists1(RELOID, ObjectIdGetDatum(tableoid)))
-		return -1;
-
-	aclresult = pg_class_aclcheck(tableoid, roleid, mode);
-
-	if (aclresult == ACLCHECK_OK)
-		return true;
-
-	/*
-	 * No table privilege, so try per-column privileges.  Again, we have to
-	 * check for dropped attribute first, and we rely on the syscache not to
-	 * notice a concurrent drop before pg_attribute_aclcheck fetches the row.
+	 * We have to check for dropped attribute first, and we rely on the
+	 * syscache not to notice a concurrent drop before pg_attribute_aclcheck
+	 * fetches the row.
 	 */
 	attTuple = SearchSysCache2(ATTNUM,
 							   ObjectIdGetDatum(tableoid),
@@ -2493,6 +2477,23 @@ column_privilege_check(Oid tableoid, AttrNumber attnum,
 	}
 	ReleaseSysCache(attTuple);
 
+	/*
+	 * Now check if we have the privilege at the table level. We check
+	 * existence of the pg_class row before risking calling pg_class_aclcheck.
+	 * Note: it might seem there's a race condition against concurrent DROP,
+	 * but really it's safe because there will be no syscache flush between
+	 * here and there.  So if we see the row in the syscache, so will
+	 * pg_class_aclcheck.
+	 */
+	if (!SearchSysCacheExists1(RELOID, ObjectIdGetDatum(tableoid)))
+		return -1;
+
+	aclresult = pg_class_aclcheck(tableoid, roleid, mode);
+
+	if (aclresult == ACLCHECK_OK)
+		return true;
+
+	/* no table privilege, so try per-column privilege */
 	aclresult = pg_attribute_aclcheck(tableoid, attnum, roleid, mode);
 
 	return (aclresult == ACLCHECK_OK);
