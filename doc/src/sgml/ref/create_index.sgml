@@ -567,6 +567,7 @@ CREATE [ UNIQUE ] INDEX [ CONCURRENTLY ] [ [ IF NOT EXISTS ] <replaceable class=
     </para>
     </listitem>
    </varlistentry>
+
    </variablelist>
   </refsect2>
 

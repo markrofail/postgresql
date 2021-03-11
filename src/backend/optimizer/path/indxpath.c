@@ -1437,6 +1437,7 @@ choose_bitmap_and(PlannerInfo *root, RelOptInfo *rel, List *paths)
 	foreach(l, paths)
 	{
 		Path	   *ipath = (Path *) lfirst(l);
+		bool		duplicate = false;
 
 		pathinfo = classify_index_clause_usage(ipath, &clauselist);
 
@@ -1451,22 +1452,29 @@ choose_bitmap_and(PlannerInfo *root, RelOptInfo *rel, List *paths)
 		{
 			if (!pathinfoarray[i]->unclassifiable &&
 				bms_equal(pathinfo->clauseids, pathinfoarray[i]->clauseids))
-				break;
-		}
-		if (i < npaths)
-		{
-			/* duplicate clauseids, keep the cheaper one */
-			Cost		ncost;
-			Cost		ocost;
-			Selectivity nselec;
-			Selectivity oselec;
+			{
+				/* duplicate clauseids, keep the cheaper one
+				 *
+				 * XXX maybe this should just use path_usage_comparator?
+				 */
+				Cost		ncost;
+				Cost		ocost;
+				Selectivity nselec;
+				Selectivity oselec;
 
-			cost_bitmap_tree_node(pathinfo->path, &ncost, &nselec);
-			cost_bitmap_tree_node(pathinfoarray[i]->path, &ocost, &oselec);
-			if (ncost < ocost)
-				pathinfoarray[i] = pathinfo;
+				cost_bitmap_tree_node(pathinfo->path, &ncost, &nselec);
+				cost_bitmap_tree_node(pathinfoarray[i]->path, &ocost, &oselec);
+
+				if ((ncost < ocost) && (nselec < oselec))
+				{
+					pathinfoarray[i] = pathinfo;
+					duplicate = true;
+					break;
+				}
+			}
 		}
-		else
+
+		if (!duplicate)
 		{
 			/* not duplicate clauseids, add to array */
 			pathinfoarray[npaths++] = pathinfo;
