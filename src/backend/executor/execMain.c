@@ -1228,11 +1228,16 @@ InitResultRelInfo(ResultRelInfo *resultRelInfo,
 	resultRelInfo->ri_ReturningSlot = NULL;
 	resultRelInfo->ri_TrigOldSlot = NULL;
 	resultRelInfo->ri_TrigNewSlot = NULL;
+	/*
+	 * For other child relations that are not tuple routing target relations,
+	 * this is set in ExecGetResultRelation().
+	 */
 	resultRelInfo->ri_RootResultRelInfo = partition_root_rri;
 	resultRelInfo->ri_RootToPartitionMap = NULL;	/* set by
 													 * ExecInitRoutingInfo */
 	resultRelInfo->ri_PartitionTupleSlot = NULL;	/* ditto */
 	resultRelInfo->ri_ChildToRootMap = NULL;
+	resultRelInfo->ri_ChildToRootMapValid = false;
 	resultRelInfo->ri_CopyMultiInsertBuffer = NULL;
 }
 
@@ -1426,6 +1431,11 @@ ExecCloseResultRelations(EState *estate)
 		ResultRelInfo *resultRelInfo = lfirst(l);
 
 		ExecCloseIndices(resultRelInfo);
+		if (!resultRelInfo->ri_usesFdwDirectModify &&
+			resultRelInfo->ri_FdwRoutine != NULL &&
+			resultRelInfo->ri_FdwRoutine->EndForeignModify != NULL)
+			resultRelInfo->ri_FdwRoutine->EndForeignModify(estate,
+														   resultRelInfo);
 	}
 
 	/* Close any relations that have been opened by ExecGetTriggerResultRel(). */

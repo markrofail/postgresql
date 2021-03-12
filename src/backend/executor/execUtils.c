@@ -1323,3 +1323,26 @@ ExecGetAllUpdatedCols(ResultRelInfo *relinfo, EState *estate)
 	return bms_union(ExecGetUpdatedCols(relinfo, estate),
 					 ExecGetExtraUpdatedCols(relinfo, estate));
 }
+
+/*
+ * Returns the map needed to convert given child relation's tuples to the
+ * query's main target ("root") relation's format, possibly initializing it
+ * if not already done.
+ */
+TupleConversionMap *
+ExecGetChildToRootMap(ResultRelInfo *resultRelInfo)
+{
+	if (!resultRelInfo->ri_ChildToRootMapValid &&
+		resultRelInfo->ri_RootResultRelInfo)
+	{
+		ResultRelInfo *targetRelInfo;
+
+		targetRelInfo = resultRelInfo->ri_RootResultRelInfo;
+		resultRelInfo->ri_ChildToRootMap =
+			convert_tuples_by_name(RelationGetDescr(resultRelInfo->ri_RelationDesc),
+								   RelationGetDescr(targetRelInfo->ri_RelationDesc));
+		resultRelInfo->ri_ChildToRootMapValid = true;
+	}
+
+	return resultRelInfo->ri_ChildToRootMap;
+}
