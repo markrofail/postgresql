@@ -242,6 +242,17 @@ WalWriterMain(void)
 		/* Clear any already-pending wakeups */
 		ResetLatch(MyLatch);
 
+		/*
+		 * Force to send remaining WAL statistics to the stats collector at
+		 * process exit.
+		 *
+		 * Since pgstat_send_wal() is invoked with 'force' is false in main loop
+		 * to avoid overloading to the stats collector, there may exist unsent
+		 * stats counters for the WAL writer.
+		 */
+		if (ShutdownRequestPending)
+			pgstat_send_wal(true);
+
 		HandleMainLoopInterrupts();
 
 		/*
