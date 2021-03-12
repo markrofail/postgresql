@@ -79,6 +79,7 @@
 #include "storage/ipc.h"
 #include "utils/guc.h"
 #include "utils/memutils.h"
+#include "utils/timeout.h"
 
 /*
  * Cope with the various platform-specific ways to spell TCP keepalive socket
@@ -104,6 +105,7 @@
  */
 int			Unix_socket_permissions;
 char	   *Unix_socket_group;
+int 		client_connection_check_interval;
 
 /* Where the Unix socket files are (list of palloc'd strings) */
 static List *sock_paths = NIL;
@@ -1920,4 +1922,38 @@ pq_settcpusertimeout(int timeout, Port *port)
 #endif
 
 	return STATUS_OK;
+}
+
+/* --------------------------------
+ *	pq_check_client_connection - check if client connected to socket or not
+ * --------------------------------
+ */
+void pq_check_client_connection(void)
+{
+	CheckClientConnectionPending = false;
+	if (IsUnderPostmaster &&
+		MyProcPort != NULL && !PqCommReadingMsg && !PqCommBusy)
+	{
+		char nextbyte;
+		int r;
+
+#ifdef WIN32
+		pgwin32_noblock = 1;
+#endif
+		r = recv(MyProcPort->sock, &nextbyte, 1, MSG_PEEK);
+#ifdef WIN32
+		pgwin32_noblock = 0;
+#endif
+
+		if (r == 0 || (r == -1 &&
+			errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR))
+		{
+			ClientConnectionLost = true;
+			InterruptPending = true;
+		}
+
+		if (client_connection_check_interval > 0)
+			enable_timeout_after(CLIENT_CONNECTION_CHECK_TIMEOUT,
+								 client_connection_check_interval);
+	}
 }
