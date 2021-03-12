@@ -335,7 +335,8 @@ RelationGetBufferForTuple(Relation relation, Size len,
 	Buffer		buffer = InvalidBuffer;
 	Page		page;
 	Size		pageFreeSpace = 0,
-				saveFreeSpace = 0;
+				saveFreeSpace = 0,
+				targetFreeSpace = 0;
 	BlockNumber targetBlock,
 				otherBlock;
 	bool		needLock;
@@ -358,6 +359,22 @@ RelationGetBufferForTuple(Relation relation, Size len,
 	saveFreeSpace = RelationGetTargetPageFreeSpace(relation,
 												   HEAP_DEFAULT_FILLFACTOR);
 
+	if (len + saveFreeSpace > MaxHeapTupleSize)
+	{
+		/*
+		 * We want to allow inserting a large tuple into an empty page
+		 * even if that would violate the fillfactor. Otherwise, we would
+		 * unnecessarily extend the relation. Instead, ask the FSM for
+		 * MaxHeapTupleSize bytes, minus a small amount of slack. This
+		 * will allow it to return a page that is not quite empty because
+		 * of free line pointers. We allow 2% slack, which is somewhat
+		 * arbitrary.
+		 */
+		targetFreeSpace = Max(len, MaxHeapTupleSize - (MaxHeapTupleSize * 2 / 100));
+	}
+	else
+		targetFreeSpace = len + saveFreeSpace;
+
 	if (otherBuffer != InvalidBuffer)
 		otherBlock = BufferGetBlockNumber(otherBuffer);
 	else
@@ -376,13 +393,7 @@ RelationGetBufferForTuple(Relation relation, Size len,
 	 * When use_fsm is false, we either put the tuple onto the existing target
 	 * page or extend the relation.
 	 */
-	if (len + saveFreeSpace > MaxHeapTupleSize)
-	{
-		/* can't fit, don't bother asking FSM */
-		targetBlock = InvalidBlockNumber;
-		use_fsm = false;
-	}
-	else if (bistate && bistate->current_buf != InvalidBuffer)
+	if (bistate && bistate->current_buf != InvalidBuffer)
 		targetBlock = BufferGetBlockNumber(bistate->current_buf);
 	else
 		targetBlock = RelationGetTargetBlock(relation);
@@ -393,7 +404,7 @@ RelationGetBufferForTuple(Relation relation, Size len,
 		 * We have no cached target page, so ask the FSM for an initial
 		 * target.
 		 */
-		targetBlock = GetPageWithFreeSpace(relation, len + saveFreeSpace);
+		targetBlock = GetPageWithFreeSpace(relation, targetFreeSpace);
 	}
 
 	/*
@@ -517,7 +528,7 @@ loop:
 		}
 
 		pageFreeSpace = PageGetHeapFreeSpace(page);
-		if (len + saveFreeSpace <= pageFreeSpace)
+		if (targetFreeSpace <= pageFreeSpace)
 		{
 			/* use this page as future insert target, too */
 			RelationSetTargetBlock(relation, targetBlock);
@@ -550,7 +561,7 @@ loop:
 		targetBlock = RecordAndGetPageWithFreeSpace(relation,
 													targetBlock,
 													pageFreeSpace,
-													len + saveFreeSpace);
+													targetFreeSpace);
 	}
 
 	/*
@@ -582,7 +593,7 @@ loop:
 			 * Check if some other backend has extended a block for us while
 			 * we were waiting on the lock.
 			 */
-			targetBlock = GetPageWithFreeSpace(relation, len + saveFreeSpace);
+			targetBlock = GetPageWithFreeSpace(relation, targetFreeSpace);
 
 			/*
 			 * If some other waiter has already extended the relation, we
