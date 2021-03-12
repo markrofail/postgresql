@@ -733,14 +733,16 @@ static const SchemaQuery Query_for_list_of_collations = {
 "  UNION ALL SELECT 'role' "\
 "  UNION ALL SELECT 'tablespace' "\
 "  UNION ALL SELECT 'all') ss "\
-" WHERE substring(name,1,%d)='%s'"
+" WHERE substring(name,1,%1$d)='%2$s' "\
+"    OR pg_catalog.lower(substring(name,1,%1$d))=pg_catalog.lower('%2$s')"
 
 #define Query_for_list_of_show_vars \
 "SELECT name FROM "\
 " (SELECT pg_catalog.lower(name) AS name FROM pg_catalog.pg_settings "\
 "  UNION ALL SELECT 'session authorization' "\
 "  UNION ALL SELECT 'all') ss "\
-" WHERE substring(name,1,%d)='%s'"
+" WHERE substring(name,1,%1$d)='%2$s' "\
+"    OR pg_catalog.lower(substring(name,1,%1$d))=pg_catalog.lower('%2$s')"
 
 #define Query_for_list_of_roles \
 " SELECT pg_catalog.quote_ident(rolname) "\
