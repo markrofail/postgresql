@@ -37,9 +37,11 @@
 
 #include "postgres.h"
 
+#include "access/detoast.h"
 #include "access/heapam.h"
 #include "access/htup_details.h"
 #include "access/tableam.h"
+#include "access/toast_compression.h"
 #include "access/xact.h"
 #include "catalog/catalog.h"
 #include "commands/trigger.h"
@@ -2036,6 +2038,119 @@ ExecPrepareTupleRouting(ModifyTableState *mtstate,
 	return slot;
 }
 
+/*
+ * Compare the compression method of each compressed value with the
+ * compression method of the target attribute.  If the compression method
+ * of the compressed value is not same as the target attribute then decompress
+ * the value.  If any of the value need to be decompressed then we need to
+ * store that into a new slot.
+ */
+TupleTableSlot *
+CompareCompressionMethodAndDecompress(TupleTableSlot *slot,
+									  TupleTableSlot **outslot,
+									  TupleDesc targetTupDesc)
+{
+	int			i;
+	int			attnum;
+	int			natts = slot->tts_tupleDescriptor->natts;
+	bool		decompressed_any = false;
+	bool		slot_tup_deformed = false;
+	TupleDesc	tupleDesc = slot->tts_tupleDescriptor;
+	TupleTableSlot *newslot = *outslot;
+
+	if (natts == 0)
+		return slot;
+
+	/*
+	 * Loop over all the attributes in the tuple and check if any attribute is
+	 * compressed and its compression method is not same as the target
+	 * atrribute's compression method then decompress it.
+	 */
+	for (i = 0; i < natts; i++)
+	{
+		attnum = tupleDesc->attrs[i].attnum;
+
+		if (TupleDescAttr(tupleDesc, i)->attlen == -1)
+		{
+			struct varlena *new_value;
+			char	cmethod;
+
+			/* fetch the values of all the attribute, if not already done */
+			if (!slot_tup_deformed)
+			{
+				slot_getallattrs(slot);
+				slot_tup_deformed = true;
+			}
+
+			/* nothing to be done, if the value is null */
+			if (slot->tts_isnull[attnum - 1])
+				continue;
+
+			new_value = (struct varlena *)
+				DatumGetPointer(slot->tts_values[attnum - 1]);
+
+			/*
+			 * Get the compression method stored in the toast header and
+			 * compare it with the compression method of the target.
+			 */
+			cmethod = toast_get_compression_method(new_value);
+			if (IsValidCompression(cmethod) &&
+				targetTupDesc->attrs[i].attcompression != cmethod)
+			{
+				if (!decompressed_any)
+				{
+					/*
+					 * If the caller has passed an invalid slot then create a
+					 * new slot. Otherwise, just clear the existing tuple from
+					 * the slot.  This slot should be stored by the caller so
+					 * that it can be reused for decompressing the subsequent
+					 * tuples.
+					 */
+					if (newslot == NULL)
+						newslot = MakeSingleTupleTableSlot(tupleDesc,
+														   slot->tts_ops);
+					else
+						ExecClearTuple(newslot);
+
+					/* copy the value/null array to the new slot */
+					memcpy(newslot->tts_values, slot->tts_values,
+						   natts * sizeof(Datum));
+					memcpy(newslot->tts_isnull, slot->tts_isnull,
+						   natts * sizeof(bool));
+
+				}
+
+				/* detoast the value and store into the new slot */
+				new_value = detoast_attr(new_value);
+				newslot->tts_values[attnum - 1] = PointerGetDatum(new_value);
+				decompressed_any = true;
+			}
+		}
+	}
+
+	/*
+	 * If we have decompressed any of the fields then return the new slot
+	 * otherwise return the original slot.
+	 */
+	if (decompressed_any)
+	{
+		ExecStoreVirtualTuple(newslot);
+
+		/*
+		 * If the original slot was materialized then materialize the new slot
+		 * as well.
+		 */
+		if (TTS_SHOULDFREE(slot))
+			ExecMaterializeSlot(newslot);
+
+		*outslot = newslot;
+
+		return newslot;
+	}
+	else
+		return slot;
+}
+
 /* ----------------------------------------------------------------
  *	   ExecModifyTable
  *
@@ -2243,6 +2358,15 @@ ExecModifyTable(PlanState *pstate)
 			if (operation != CMD_DELETE)
 				slot = ExecFilterJunk(junkfilter, slot);
 		}
+
+		/*
+		 * Compare the compression method of the compressed attribute in the
+		 * source tuple with target attribute and if those are different then
+		 * decompress those attributes.
+		 */
+		slot = CompareCompressionMethodAndDecompress(slot,
+									&node->mt_decompress_tuple_slot,
+									resultRelInfo->ri_RelationDesc->rd_att);
 
 		switch (operation)
 		{
@@ -2875,6 +2999,10 @@ ExecEndModifyTable(ModifyTableState *node)
 		if (node->mt_root_tuple_slot)
 			ExecDropSingleTupleTableSlot(node->mt_root_tuple_slot);
 	}
+
+	/* release the slot used for decompressing the tuple */
+	if (node->mt_decompress_tuple_slot)
+		ExecDropSingleTupleTableSlot(node->mt_decompress_tuple_slot);
 
 	/*
 	 * Free the exprcontext

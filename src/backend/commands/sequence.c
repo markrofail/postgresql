@@ -1834,7 +1834,7 @@ pg_sequence_parameters(PG_FUNCTION_ARGS)
 
 	ReleaseSysCache(pgstuple);
 
-	return HeapTupleGetDatum(heap_form_tuple(tupdesc, values, isnull));
+	return HeapTupleGetRawDatum(heap_form_tuple(tupdesc, values, isnull));
 }
 
 /*

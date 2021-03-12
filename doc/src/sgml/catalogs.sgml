@@ -1357,6 +1357,16 @@
 
      <row>
       <entry role="catalog_table_entry"><para role="column_definition">
+       <structfield>attcompression</structfield> <type>char</type>
+      </para>
+      <para>
+       The current compression method of the column.  Must be <literal>InvalidCompressionMethod</literal>
+       if and only if typstorage is 'plain' or 'external'.
+      </para></entry>
+     </row>
+
+     <row>
+      <entry role="catalog_table_entry"><para role="column_definition">
        <structfield>attacl</structfield> <type>aclitem[]</type>
       </para>
       <para>

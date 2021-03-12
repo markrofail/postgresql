@@ -5326,7 +5326,7 @@ exec_eval_datum(PLpgSQL_execstate *estate,
 					elog(ERROR, "row not compatible with its own tupdesc");
 				*typeid = row->rowtupdesc->tdtypeid;
 				*typetypmod = row->rowtupdesc->tdtypmod;
-				*value = HeapTupleGetDatum(tup);
+				*value = HeapTupleGetRawDatum(tup);
 				*isnull = false;
 				MemoryContextSwitchTo(oldcontext);
 				break;
@@ -7300,6 +7300,8 @@ make_tuple_from_row(PLpgSQL_execstate *estate,
 						&dvalues[i], &nulls[i]);
 		if (fieldtypeid != TupleDescAttr(tupdesc, i)->atttypid)
 			return NULL;
+		if (!nulls[i] && TupleDescAttr(tupdesc, i)->attlen == -1)
+			dvalues[i] = PointerGetDatum(PG_DETOAST_DATUM_PACKED(dvalues[i]));
 		/* XXX should we insist on typmod match, too? */
 	}
 

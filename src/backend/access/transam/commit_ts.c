@@ -469,7 +469,7 @@ pg_last_committed_xact(PG_FUNCTION_ARGS)
 
 	htup = heap_form_tuple(tupdesc, values, nulls);
 
-	PG_RETURN_DATUM(HeapTupleGetDatum(htup));
+	PG_RETURN_HEAPTUPLEHEADER_RAW(htup->t_data);
 }
 
 /*
@@ -518,7 +518,7 @@ pg_xact_commit_timestamp_origin(PG_FUNCTION_ARGS)
 
 	htup = heap_form_tuple(tupdesc, values, nulls);
 
-	PG_RETURN_DATUM(HeapTupleGetDatum(htup));
+	PG_RETURN_HEAPTUPLEHEADER_RAW(htup->t_data);
 }
 
 /*

@@ -2355,7 +2355,7 @@ pg_get_object_address(PG_FUNCTION_ARGS)
 
 	htup = heap_form_tuple(tupdesc, values, nulls);
 
-	PG_RETURN_DATUM(HeapTupleGetDatum(htup));
+	PG_RETURN_HEAPTUPLEHEADER_RAW(htup->t_data);
 }
 
 /*
@@ -4233,7 +4233,7 @@ pg_identify_object(PG_FUNCTION_ARGS)
 
 	htup = heap_form_tuple(tupdesc, values, nulls);
 
-	PG_RETURN_DATUM(HeapTupleGetDatum(htup));
+	PG_RETURN_HEAPTUPLEHEADER_RAW(htup->t_data);
 }
 
 /*
@@ -4304,7 +4304,7 @@ pg_identify_object_as_address(PG_FUNCTION_ARGS)
 
 	htup = heap_form_tuple(tupdesc, values, nulls);
 
-	PG_RETURN_DATUM(HeapTupleGetDatum(htup));
+	PG_RETURN_HEAPTUPLEHEADER_RAW(htup->t_data);
 }
 
 /*

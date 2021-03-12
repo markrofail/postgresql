@@ -983,16 +983,26 @@ heap_expand_tuple(HeapTuple sourceTuple, TupleDesc tupleDesc)
 Datum
 heap_copy_tuple_as_datum(HeapTuple tuple, TupleDesc tupleDesc)
 {
-	HeapTupleHeader td;
-
 	/*
-	 * If the tuple contains any external TOAST pointers, we have to inline
-	 * those fields to meet the conventions for composite-type Datums.
+	 * We have to inline any external/compressed data to meet the conventions
+	 * for composite-type Datums.
 	 */
-	if (HeapTupleHasExternal(tuple))
-		return toast_flatten_tuple_to_datum(tuple->t_data,
+	return toast_flatten_tuple_to_datum(tuple->t_data,
 											tuple->t_len,
 											tupleDesc);
+}
+
+/* ----------------
+ *		heap_copy_tuple_as_raw_datum
+ *
+ *		copy a tuple as a composite-type Datum, but the input tuple should not
+ *		contain any external data.
+ * ----------------
+ */
+Datum
+heap_copy_tuple_as_raw_datum(HeapTuple tuple, TupleDesc tupleDesc)
+{
+	HeapTupleHeader td;
 
 	/*
 	 * Fast path for easy case: just make a palloc'd copy and insert the

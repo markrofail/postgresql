@@ -97,7 +97,8 @@ pg_visibility_map(PG_FUNCTION_ARGS)
 
 	relation_close(rel, AccessShareLock);
 
-	PG_RETURN_DATUM(HeapTupleGetDatum(heap_form_tuple(tupdesc, values, nulls)));
+	PG_RETURN_HEAPTUPLEHEADER_RAW(
+			heap_form_tuple(tupdesc, values, nulls)->t_data);
 }
 
 /*
@@ -156,7 +157,8 @@ pg_visibility(PG_FUNCTION_ARGS)
 
 	relation_close(rel, AccessShareLock);
 
-	PG_RETURN_DATUM(HeapTupleGetDatum(heap_form_tuple(tupdesc, values, nulls)));
+	PG_RETURN_HEAPTUPLEHEADER_RAW(
+			heap_form_tuple(tupdesc, values, nulls)->t_data);
 }
 
 /*
@@ -197,7 +199,7 @@ pg_visibility_map_rel(PG_FUNCTION_ARGS)
 		info->next++;
 
 		tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
-		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tuple));
+		SRF_RETURN_NEXT(funcctx, HeapTupleGetRawDatum(tuple));
 	}
 
 	SRF_RETURN_DONE(funcctx);
@@ -243,7 +245,7 @@ pg_visibility_rel(PG_FUNCTION_ARGS)
 		info->next++;
 
 		tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
-		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tuple));
+		SRF_RETURN_NEXT(funcctx, HeapTupleGetRawDatum(tuple));
 	}
 
 	SRF_RETURN_DONE(funcctx);
@@ -303,7 +305,8 @@ pg_visibility_map_summary(PG_FUNCTION_ARGS)
 	values[0] = Int64GetDatum(all_visible);
 	values[1] = Int64GetDatum(all_frozen);
 
-	PG_RETURN_DATUM(HeapTupleGetDatum(heap_form_tuple(tupdesc, values, nulls)));
+	PG_RETURN_HEAPTUPLEHEADER_RAW(
+			heap_form_tuple(tupdesc, values, nulls)->t_data);
 }
 
 /*

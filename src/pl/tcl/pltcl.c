@@ -1024,7 +1024,7 @@ pltcl_func_handler(PG_FUNCTION_ARGS, pltcl_call_state *call_state,
 
 		tup = pltcl_build_tuple_result(interp, resultObjv, resultObjc,
 									   call_state);
-		retval = HeapTupleGetDatum(tup);
+		retval = HeapTupleGetRawDatum(tup);
 	}
 	else
 		retval = InputFunctionCall(&prodesc->result_in_func,
@@ -3235,7 +3235,7 @@ pltcl_build_tuple_result(Tcl_Interp *interp, Tcl_Obj **kvObjv, int kvObjc,
 
 	/* if result type is domain-over-composite, check domain constraints */
 	if (call_state->prodesc->fn_retisdomain)
-		domain_check(HeapTupleGetDatum(tuple), false,
+		domain_check(HeapTupleGetRawDatum(tuple), false,
 					 call_state->prodesc->result_typid,
 					 &call_state->prodesc->domain_info,
 					 call_state->prodesc->fn_cxt);

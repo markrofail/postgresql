@@ -282,7 +282,7 @@ heap_page_items(PG_FUNCTION_ARGS)
 
 		/* Build and return the result tuple. */
 		resultTuple = heap_form_tuple(inter_call_data->tupd, values, nulls);
-		result = HeapTupleGetDatum(resultTuple);
+		result = HeapTupleGetRawDatum(resultTuple);
 
 		inter_call_data->offset++;
 
@@ -540,7 +540,7 @@ heap_tuple_infomask_flags(PG_FUNCTION_ARGS)
 		values[0] = PointerGetDatum(construct_empty_array(TEXTOID));
 		values[1] = PointerGetDatum(construct_empty_array(TEXTOID));
 		tuple = heap_form_tuple(tupdesc, values, nulls);
-		PG_RETURN_DATUM(HeapTupleGetDatum(tuple));
+		PG_RETURN_HEAPTUPLEHEADER_RAW(tuple->t_data);
 	}
 
 	/* build set of raw flags */
@@ -618,5 +618,5 @@ heap_tuple_infomask_flags(PG_FUNCTION_ARGS)
 
 	/* Returns the record as Datum */
 	tuple = heap_form_tuple(tupdesc, values, nulls);
-	PG_RETURN_DATUM(HeapTupleGetDatum(tuple));
+	PG_RETURN_HEAPTUPLEHEADER_RAW(tuple->t_data);
 }

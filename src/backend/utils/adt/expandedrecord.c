@@ -673,14 +673,6 @@ ER_get_flat_size(ExpandedObjectHeader *eohptr)
 		erh->er_typmod = tupdesc->tdtypmod;
 	}
 
-	/*
-	 * If we have a valid flattened value without out-of-line fields, we can
-	 * just use it as-is.
-	 */
-	if (erh->flags & ER_FLAG_FVALUE_VALID &&
-		!(erh->flags & ER_FLAG_HAVE_EXTERNAL))
-		return erh->fvalue->t_len;
-
 	/* If we have a cached size value, believe that */
 	if (erh->flat_size)
 		return erh->flat_size;
@@ -693,37 +685,35 @@ ER_get_flat_size(ExpandedObjectHeader *eohptr)
 	tupdesc = erh->er_tupdesc;
 
 	/*
-	 * Composite datums mustn't contain any out-of-line values.
+	 * Composite datums mustn't contain any out-of-line/compressed values.
 	 */
-	if (erh->flags & ER_FLAG_HAVE_EXTERNAL)
+	for (i = 0; i < erh->nfields; i++)
 	{
-		for (i = 0; i < erh->nfields; i++)
+		Form_pg_attribute attr = TupleDescAttr(tupdesc, i);
+
+		if (!erh->dnulls[i] &&
+			!attr->attbyval && attr->attlen == -1 &&
+			(VARATT_IS_EXTERNAL(DatumGetPointer(erh->dvalues[i])) ||
+			 VARATT_IS_COMPRESSED(DatumGetPointer(erh->dvalues[i]))))
 		{
-			Form_pg_attribute attr = TupleDescAttr(tupdesc, i);
-
-			if (!erh->dnulls[i] &&
-				!attr->attbyval && attr->attlen == -1 &&
-				VARATT_IS_EXTERNAL(DatumGetPointer(erh->dvalues[i])))
-			{
-				/*
-				 * expanded_record_set_field_internal can do the actual work
-				 * of detoasting.  It needn't recheck domain constraints.
-				 */
-				expanded_record_set_field_internal(erh, i + 1,
-												   erh->dvalues[i], false,
-												   true,
-												   false);
-			}
+			/*
+			 * expanded_record_set_field_internal can do the actual work
+			 * of detoasting.  It needn't recheck domain constraints.
+			 */
+			expanded_record_set_field_internal(erh, i + 1,
+												erh->dvalues[i], false,
+												true,
+												false);
 		}
-
-		/*
-		 * We have now removed all external field values, so we can clear the
-		 * flag about them.  This won't cause ER_flatten_into() to mistakenly
-		 * take the fast path, since expanded_record_set_field() will have
-		 * cleared ER_FLAG_FVALUE_VALID.
-		 */
-		erh->flags &= ~ER_FLAG_HAVE_EXTERNAL;
 	}
+
+	/*
+	 * We have now removed all external field values, so we can clear the
+	 * flag about them.  This won't cause ER_flatten_into() to mistakenly
+	 * take the fast path, since expanded_record_set_field() will have
+	 * cleared ER_FLAG_FVALUE_VALID.
+	 */
+	erh->flags &= ~ER_FLAG_HAVE_EXTERNAL;
 
 	/* Test if we currently have any null values */
 	hasnull = false;
@@ -769,19 +759,6 @@ ER_flatten_into(ExpandedObjectHeader *eohptr,
 	TupleDesc	tupdesc;
 
 	Assert(erh->er_magic == ER_MAGIC);
-
-	/* Easy if we have a valid flattened value without out-of-line fields */
-	if (erh->flags & ER_FLAG_FVALUE_VALID &&
-		!(erh->flags & ER_FLAG_HAVE_EXTERNAL))
-	{
-		Assert(allocated_size == erh->fvalue->t_len);
-		memcpy(tuphdr, erh->fvalue->t_data, allocated_size);
-		/* The original flattened value might not have datum header fields */
-		HeapTupleHeaderSetDatumLength(tuphdr, allocated_size);
-		HeapTupleHeaderSetTypeId(tuphdr, erh->er_typeid);
-		HeapTupleHeaderSetTypMod(tuphdr, erh->er_typmod);
-		return;
-	}
 
 	/* Else allocation should match previous get_flat_size result */
 	Assert(allocated_size == erh->flat_size);
@@ -1155,11 +1132,12 @@ expanded_record_set_field_internal(ExpandedRecordHeader *erh, int fnumber,
 		if (expand_external)
 		{
 			if (attr->attlen == -1 &&
-				VARATT_IS_EXTERNAL(DatumGetPointer(newValue)))
+				(VARATT_IS_EXTERNAL(DatumGetPointer(newValue)) ||
+				 VARATT_IS_COMPRESSED(DatumGetPointer(newValue))))
 			{
 				/* Detoasting should be done in short-lived context. */
 				oldcxt = MemoryContextSwitchTo(get_short_term_cxt(erh));
-				newValue = PointerGetDatum(detoast_external_attr((struct varlena *) DatumGetPointer(newValue)));
+				newValue = PointerGetDatum(detoast_attr((struct varlena *) DatumGetPointer(newValue)));
 				MemoryContextSwitchTo(oldcxt);
 			}
 			else

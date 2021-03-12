@@ -230,7 +230,7 @@ pg_buffercache_pages(PG_FUNCTION_ARGS)
 
 		/* Build and return the tuple. */
 		tuple = heap_form_tuple(fctx->tupdesc, values, nulls);
-		result = HeapTupleGetDatum(tuple);
+		result = HeapTupleGetRawDatum(tuple);
 
 		SRF_RETURN_NEXT(funcctx, result);
 	}

@@ -1137,14 +1137,14 @@ hstore_populate_record(PG_FUNCTION_ARGS)
 	 * check domain constraints before deciding we're done.
 	 */
 	if (argtype != tupdesc->tdtypeid)
-		domain_check(HeapTupleGetDatum(rettuple), false,
+		domain_check(HeapTupleGetRawDatum(rettuple), false,
 					 argtype,
 					 &my_extra->domain_info,
 					 fcinfo->flinfo->fn_mcxt);
 
 	ReleaseTupleDesc(tupdesc);
 
-	PG_RETURN_DATUM(HeapTupleGetDatum(rettuple));
+	PG_RETURN_HEAPTUPLEHEADER_RAW(rettuple->t_data);
 }
 
 

@@ -293,7 +293,7 @@ record_in(PG_FUNCTION_ARGS)
 	pfree(nulls);
 	ReleaseTupleDesc(tupdesc);
 
-	PG_RETURN_HEAPTUPLEHEADER(result);
+	PG_RETURN_HEAPTUPLEHEADER_RAW(result);
 }
 
 /*
@@ -660,7 +660,7 @@ record_recv(PG_FUNCTION_ARGS)
 	pfree(nulls);
 	ReleaseTupleDesc(tupdesc);
 
-	PG_RETURN_HEAPTUPLEHEADER(result);
+	PG_RETURN_HEAPTUPLEHEADER_RAW(result);
 }
 
 /*

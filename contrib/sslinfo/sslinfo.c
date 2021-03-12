@@ -460,7 +460,7 @@ ssl_extension_info(PG_FUNCTION_ARGS)
 
 		/* Build tuple */
 		tuple = heap_form_tuple(fctx->tupdesc, values, nulls);
-		result = HeapTupleGetDatum(tuple);
+		result = HeapTupleGetRawDatum(tuple);
 
 		if (BIO_free(membuf) != 1)
 			elog(ERROR, "could not free OpenSSL BIO structure");

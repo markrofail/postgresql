@@ -484,7 +484,7 @@ pg_get_keywords(PG_FUNCTION_ARGS)
 
 		tuple = BuildTupleFromCStrings(funcctx->attinmeta, values);
 
-		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tuple));
+		SRF_RETURN_NEXT(funcctx, HeapTupleGetRawDatum(tuple));
 	}
 
 	SRF_RETURN_DONE(funcctx);
@@ -562,7 +562,7 @@ pg_get_catalog_foreign_keys(PG_FUNCTION_ARGS)
 
 		tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
 
-		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tuple));
+		SRF_RETURN_NEXT(funcctx, HeapTupleGetRawDatum(tuple));
 	}
 
 	SRF_RETURN_DONE(funcctx);

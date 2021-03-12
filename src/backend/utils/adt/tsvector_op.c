@@ -707,7 +707,7 @@ tsvector_unnest(PG_FUNCTION_ARGS)
 		}
 
 		tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
-		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tuple));
+		SRF_RETURN_NEXT(funcctx, HeapTupleGetRawDatum(tuple));
 	}
 	else
 	{
@@ -2385,7 +2385,7 @@ ts_process_call(FuncCallContext *funcctx)
 		values[2] = nentry;
 
 		tuple = BuildTupleFromCStrings(funcctx->attinmeta, values);
-		result = HeapTupleGetDatum(tuple);
+		result = HeapTupleGetRawDatum(tuple);
 
 		pfree(values[0]);
 

@@ -1450,7 +1450,7 @@ pg_stats_ext_mcvlist_items(PG_FUNCTION_ARGS)
 		tuple = heap_form_tuple(funcctx->attinmeta->tupdesc, values, nulls);
 
 		/* make the tuple into a datum */
-		result = HeapTupleGetDatum(tuple);
+		result = HeapTupleGetRawDatum(tuple);
 
 		SRF_RETURN_NEXT(funcctx, result);
 	}

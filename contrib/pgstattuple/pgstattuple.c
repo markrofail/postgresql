@@ -147,7 +147,7 @@ build_pgstattuple_type(pgstattuple_type *stat, FunctionCallInfo fcinfo)
 	tuple = BuildTupleFromCStrings(attinmeta, values);
 
 	/* make the tuple into a datum */
-	return HeapTupleGetDatum(tuple);
+	return HeapTupleGetRawDatum(tuple);
 }
 
 /* ----------

@@ -314,5 +314,5 @@ pgstattuple_approx_internal(Oid relid, FunctionCallInfo fcinfo)
 	values[i++] = Float8GetDatum(stat.free_percent);
 
 	ret = heap_form_tuple(tupdesc, values, nulls);
-	return HeapTupleGetDatum(ret);
+	return HeapTupleGetRawDatum(ret);
 }

@@ -82,7 +82,7 @@ gin_metapage_info(PG_FUNCTION_ARGS)
 	/* Build and return the result tuple. */
 	resultTuple = heap_form_tuple(tupdesc, values, nulls);
 
-	return HeapTupleGetDatum(resultTuple);
+	return HeapTupleGetRawDatum(resultTuple);
 }
 
 
@@ -150,7 +150,7 @@ gin_page_opaque_info(PG_FUNCTION_ARGS)
 	/* Build and return the result tuple. */
 	resultTuple = heap_form_tuple(tupdesc, values, nulls);
 
-	return HeapTupleGetDatum(resultTuple);
+	return HeapTupleGetRawDatum(resultTuple);
 }
 
 typedef struct gin_leafpage_items_state
@@ -254,7 +254,7 @@ gin_leafpage_items(PG_FUNCTION_ARGS)
 
 		/* Build and return the result tuple. */
 		resultTuple = heap_form_tuple(inter_call_data->tupd, values, nulls);
-		result = HeapTupleGetDatum(resultTuple);
+		result = HeapTupleGetRawDatum(resultTuple);
 
 		inter_call_data->seg = GinNextPostingListSegment(cur);
 

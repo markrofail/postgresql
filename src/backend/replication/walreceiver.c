@@ -1423,5 +1423,6 @@ pg_stat_get_wal_receiver(PG_FUNCTION_ARGS)
 	}
 
 	/* Returns the record as Datum */
-	PG_RETURN_DATUM(HeapTupleGetDatum(heap_form_tuple(tupdesc, values, nulls)));
+	PG_RETURN_HEAPTUPLEHEADER_RAW(
+			heap_form_tuple(tupdesc, values, nulls)->t_data);
 }

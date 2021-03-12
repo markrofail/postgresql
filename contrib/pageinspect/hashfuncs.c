@@ -273,7 +273,7 @@ hash_page_stats(PG_FUNCTION_ARGS)
 
 	tuple = heap_form_tuple(tupleDesc, values, nulls);
 
-	PG_RETURN_DATUM(HeapTupleGetDatum(tuple));
+	PG_RETURN_HEAPTUPLEHEADER_RAW(tuple->t_data);
 }
 
 /*
@@ -368,7 +368,7 @@ hash_page_items(PG_FUNCTION_ARGS)
 		values[j] = Int64GetDatum((int64) hashkey);
 
 		tuple = heap_form_tuple(fctx->attinmeta->tupdesc, values, nulls);
-		result = HeapTupleGetDatum(tuple);
+		result = HeapTupleGetRawDatum(tuple);
 
 		uargs->offset = uargs->offset + 1;
 
@@ -499,7 +499,7 @@ hash_bitmap_info(PG_FUNCTION_ARGS)
 
 	tuple = heap_form_tuple(tupleDesc, values, nulls);
 
-	PG_RETURN_DATUM(HeapTupleGetDatum(tuple));
+	PG_RETURN_HEAPTUPLEHEADER_RAW(tuple->t_data);
 }
 
 /* ------------------------------------------------
@@ -577,5 +577,5 @@ hash_metapage_info(PG_FUNCTION_ARGS)
 
 	tuple = heap_form_tuple(tupleDesc, values, nulls);
 
-	PG_RETURN_DATUM(HeapTupleGetDatum(tuple));
+	PG_RETURN_HEAPTUPLEHEADER_RAW(tuple->t_data);
 }

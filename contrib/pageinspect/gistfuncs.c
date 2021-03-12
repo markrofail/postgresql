@@ -89,7 +89,7 @@ gist_page_opaque_info(PG_FUNCTION_ARGS)
 	/* Build and return the result tuple. */
 	resultTuple = heap_form_tuple(tupdesc, values, nulls);
 
-	return HeapTupleGetDatum(resultTuple);
+	return HeapTupleGetRawDatum(resultTuple);
 }
 
 Datum

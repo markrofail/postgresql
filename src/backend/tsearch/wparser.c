@@ -97,7 +97,7 @@ tt_process_call(FuncCallContext *funcctx)
 		values[2] = st->list[st->cur].descr;
 
 		tuple = BuildTupleFromCStrings(funcctx->attinmeta, values);
-		result = HeapTupleGetDatum(tuple);
+		result = HeapTupleGetRawDatum(tuple);
 
 		pfree(values[1]);
 		pfree(values[2]);
@@ -236,7 +236,7 @@ prs_process_call(FuncCallContext *funcctx)
 		sprintf(tid, "%d", st->list[st->cur].type);
 		values[1] = st->list[st->cur].lexeme;
 		tuple = BuildTupleFromCStrings(funcctx->attinmeta, values);
-		result = HeapTupleGetDatum(tuple);
+		result = HeapTupleGetRawDatum(tuple);
 
 		pfree(values[1]);
 		st->cur++;

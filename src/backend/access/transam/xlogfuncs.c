@@ -487,7 +487,7 @@ pg_walfile_name_offset(PG_FUNCTION_ARGS)
 	 */
 	resultHeapTuple = heap_form_tuple(resultTupleDesc, values, isnull);
 
-	result = HeapTupleGetDatum(resultHeapTuple);
+	result = HeapTupleGetRawDatum(resultHeapTuple);
 
 	PG_RETURN_DATUM(result);
 }

@@ -1127,7 +1127,7 @@ plperl_hash_to_datum(SV *src, TupleDesc td)
 {
 	HeapTuple	tup = plperl_build_tuple_result((HV *) SvRV(src), td);
 
-	return HeapTupleGetDatum(tup);
+	return HeapTupleGetRawDatum(tup);
 }
 
 /*
@@ -3334,7 +3334,7 @@ plperl_return_next_internal(SV *sv)
 										  current_call_data->ret_tdesc);
 
 		if (OidIsValid(current_call_data->cdomain_oid))
-			domain_check(HeapTupleGetDatum(tuple), false,
+			domain_check(HeapTupleGetRawDatum(tuple), false,
 						 current_call_data->cdomain_oid,
 						 &current_call_data->cdomain_info,
 						 rsi->econtext->ecxt_per_query_memory);

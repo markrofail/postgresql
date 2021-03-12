@@ -366,7 +366,7 @@ brin_metapage_info(PG_FUNCTION_ARGS)
 
 	htup = heap_form_tuple(tupdesc, values, nulls);
 
-	PG_RETURN_DATUM(HeapTupleGetDatum(htup));
+	PG_RETURN_HEAPTUPLEHEADER_RAW(htup->t_data);
 }
 
 /*

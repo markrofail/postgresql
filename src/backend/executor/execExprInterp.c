@@ -2840,12 +2840,24 @@ ExecEvalRow(ExprState *state, ExprEvalStep *op)
 {
 	HeapTuple	tuple;
 
+	/* Retrieve externally stored values and decompress. */
+	for (int i = 0; i < op->d.row.tupdesc->natts; i++)
+	{
+		Form_pg_attribute attr = TupleDescAttr(op->d.row.tupdesc, i);
+
+		if (op->d.row.elemnulls[i] || attr->attlen != -1)
+			continue;
+
+		op->d.row.elemvalues[i] =
+			PointerGetDatum(PG_DETOAST_DATUM_PACKED(op->d.row.elemvalues[i]));
+	}
+
 	/* build tuple from evaluated field values */
 	tuple = heap_form_tuple(op->d.row.tupdesc,
 							op->d.row.elemvalues,
 							op->d.row.elemnulls);
 
-	*op->resvalue = HeapTupleGetDatum(tuple);
+	*op->resvalue = HeapTupleGetRawDatum(tuple);
 	*op->resnull = false;
 }
 
@@ -3085,12 +3097,23 @@ ExecEvalFieldStoreForm(ExprState *state, ExprEvalStep *op, ExprContext *econtext
 {
 	HeapTuple	tuple;
 
+	/* Retrieve externally stored values and decompress. */
+	for (int i = 0; i < (*op->d.fieldstore.argdesc)->natts; i++)
+	{
+		Form_pg_attribute attr = TupleDescAttr(*op->d.fieldstore.argdesc, i);
+
+		if (op->d.fieldstore.nulls[i] || attr->attlen != -1)
+			continue;
+		op->d.fieldstore.values[i] = PointerGetDatum(
+						PG_DETOAST_DATUM_PACKED(op->d.fieldstore.values[i]));
+	}
+
 	/* argdesc should already be valid from the DeForm step */
 	tuple = heap_form_tuple(*op->d.fieldstore.argdesc,
 							op->d.fieldstore.values,
 							op->d.fieldstore.nulls);
 
-	*op->resvalue = HeapTupleGetDatum(tuple);
+	*op->resvalue = HeapTupleGetRawDatum(tuple);
 	*op->resnull = false;
 }
 
@@ -3169,8 +3192,13 @@ ExecEvalConvertRowtype(ExprState *state, ExprEvalStep *op, ExprContext *econtext
 	{
 		/* Full conversion with attribute rearrangement needed */
 		result = execute_attr_map_tuple(&tmptup, op->d.convert_rowtype.map);
-		/* Result already has appropriate composite-datum header fields */
-		*op->resvalue = HeapTupleGetDatum(result);
+
+		/*
+		 * Result already has appropriate composite-datum header fields. The
+		 * input was a composite type so we aren't expecting to have to flatten
+		 * any toasted fields so directly call HeapTupleGetRawDatum.
+		 */
+		*op->resvalue = HeapTupleGetRawDatum(result);
 	}
 	else
 	{
@@ -3181,10 +3209,10 @@ ExecEvalConvertRowtype(ExprState *state, ExprEvalStep *op, ExprContext *econtext
 		 * for this since it will both make the physical copy and insert the
 		 * correct composite header fields.  Note that we aren't expecting to
 		 * have to flatten any toasted fields: the input was a composite
-		 * datum, so it shouldn't contain any.  So heap_copy_tuple_as_datum()
-		 * is overkill here, but its check for external fields is cheap.
+		 * datum, so it shouldn't contain any.  So we can directly call
+		 * heap_copy_tuple_as_raw_datum().
 		 */
-		*op->resvalue = heap_copy_tuple_as_datum(&tmptup, outdesc);
+		*op->resvalue = heap_copy_tuple_as_raw_datum(&tmptup, outdesc);
 	}
 }
 

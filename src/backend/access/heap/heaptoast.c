@@ -589,9 +589,9 @@ toast_build_flattened_tuple(TupleDesc tupleDesc,
 			struct varlena *new_value;
 
 			new_value = (struct varlena *) DatumGetPointer(new_values[i]);
-			if (VARATT_IS_EXTERNAL(new_value))
+			if (VARATT_IS_EXTERNAL(new_value) || VARATT_IS_COMPRESSED(new_value))
 			{
-				new_value = detoast_external_attr(new_value);
+				new_value = detoast_attr(new_value);
 				new_values[i] = PointerGetDatum(new_value);
 				freeable_values[num_to_free++] = (Pointer) new_value;
 			}

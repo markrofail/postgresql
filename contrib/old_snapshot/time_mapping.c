@@ -72,7 +72,7 @@ pg_old_snapshot_time_mapping(PG_FUNCTION_ARGS)
 
 		tuple = MakeOldSnapshotTimeMappingTuple(funcctx->tuple_desc, mapping);
 		++mapping->current_index;
-		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tuple));
+		SRF_RETURN_NEXT(funcctx, HeapTupleGetRawDatum(tuple));
 	}
 
 	SRF_RETURN_DONE(funcctx);

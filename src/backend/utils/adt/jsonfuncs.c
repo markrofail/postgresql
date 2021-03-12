@@ -2968,7 +2968,7 @@ populate_composite(CompositeIOData *io,
 		/* populate resulting record tuple */
 		tuple = populate_record(io->tupdesc, &io->record_io,
 								defaultval, mcxt, &jso);
-		result = HeapTupleHeaderGetDatum(tuple);
+		result = HeapTupleHeaderGetRawDatum(tuple);
 
 		JsObjectFree(&jso);
 	}
@@ -3387,6 +3387,9 @@ populate_record(TupleDesc tupdesc,
 										  nulls[i] ? (Datum) 0 : values[i],
 										  &field,
 										  &nulls[i]);
+
+		if (!nulls[i] && att->attlen == -1)
+			values[i] = PointerGetDatum(PG_DETOAST_DATUM_PACKED(values[i]));
 	}
 
 	res = heap_form_tuple(tupdesc, values, nulls);
@@ -3765,7 +3768,7 @@ populate_recordset_record(PopulateRecordsetState *state, JsObject *obj)
 
 	/* if it's domain over composite, check domain constraints */
 	if (cache->c.typcat == TYPECAT_COMPOSITE_DOMAIN)
-		domain_check(HeapTupleHeaderGetDatum(tuphead), false,
+		domain_check(HeapTupleHeaderGetRawDatum(tuphead), false,
 					 cache->argtype,
 					 &cache->c.io.composite.domain_info,
 					 cache->fn_mcxt);

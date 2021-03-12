@@ -1804,7 +1804,7 @@ aclexplode(PG_FUNCTION_ARGS)
 			MemSet(nulls, 0, sizeof(nulls));
 
 			tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
-			result = HeapTupleGetDatum(tuple);
+			result = HeapTupleGetRawDatum(tuple);
 
 			SRF_RETURN_NEXT(funcctx, result);
 		}

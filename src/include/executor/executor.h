@@ -621,5 +621,7 @@ extern void CheckCmdReplicaIdentity(Relation rel, CmdType cmd);
 
 extern void CheckSubscriptionRelkind(char relkind, const char *nspname,
 									 const char *relname);
-
+extern TupleTableSlot *CompareCompressionMethodAndDecompress(TupleTableSlot *slot,
+												  TupleTableSlot **outslot,
+												  TupleDesc targetTupDesc);
 #endif							/* EXECUTOR_H  */

@@ -1185,6 +1185,12 @@ typedef struct ModifyTableState
 	 */
 	TupleTableSlot *mt_root_tuple_slot;
 
+	/*
+	 * Slot for storing the modified tuple, in case the target attribute's
+	 * compression method doesn't match that of the source table.
+	 */
+	TupleTableSlot *mt_decompress_tuple_slot;
+
 	/* Tuple-routing support info */
 	struct PartitionTupleRouting *mt_partition_tuple_routing;
 

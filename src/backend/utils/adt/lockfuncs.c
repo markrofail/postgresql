@@ -344,7 +344,7 @@ pg_lock_status(PG_FUNCTION_ARGS)
 			nulls[15] = true;
 
 		tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
-		result = HeapTupleGetDatum(tuple);
+		result = HeapTupleGetRawDatum(tuple);
 		SRF_RETURN_NEXT(funcctx, result);
 	}
 
@@ -415,7 +415,7 @@ pg_lock_status(PG_FUNCTION_ARGS)
 		nulls[15] = true;
 
 		tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
-		result = HeapTupleGetDatum(tuple);
+		result = HeapTupleGetRawDatum(tuple);
 		SRF_RETURN_NEXT(funcctx, result);
 	}
 

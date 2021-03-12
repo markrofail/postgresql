@@ -4776,7 +4776,7 @@ pg_timezone_abbrevs(PG_FUNCTION_ARGS)
 	(*pindex)++;
 
 	tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
-	result = HeapTupleGetDatum(tuple);
+	result = HeapTupleGetRawDatum(tuple);
 
 	SRF_RETURN_NEXT(funcctx, result);
 }

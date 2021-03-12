@@ -328,7 +328,7 @@ page_header(PG_FUNCTION_ARGS)
 	memset(nulls, 0, sizeof(nulls));
 
 	tuple = heap_form_tuple(tupdesc, values, nulls);
-	result = HeapTupleGetDatum(tuple);
+	result = HeapTupleGetRawDatum(tuple);
 
 	PG_RETURN_DATUM(result);
 }

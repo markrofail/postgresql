@@ -106,7 +106,7 @@ pg_create_physical_replication_slot(PG_FUNCTION_ARGS)
 		nulls[1] = true;
 
 	tuple = heap_form_tuple(tupdesc, values, nulls);
-	result = HeapTupleGetDatum(tuple);
+	result = HeapTupleGetRawDatum(tuple);
 
 	ReplicationSlotRelease();
 
@@ -205,7 +205,7 @@ pg_create_logical_replication_slot(PG_FUNCTION_ARGS)
 	memset(nulls, 0, sizeof(nulls));
 
 	tuple = heap_form_tuple(tupdesc, values, nulls);
-	result = HeapTupleGetDatum(tuple);
+	result = HeapTupleGetRawDatum(tuple);
 
 	/* ok, slot is now fully created, mark it as persistent if needed */
 	if (!temporary)
@@ -689,7 +689,7 @@ pg_replication_slot_advance(PG_FUNCTION_ARGS)
 	nulls[1] = false;
 
 	tuple = heap_form_tuple(tupdesc, values, nulls);
-	result = HeapTupleGetDatum(tuple);
+	result = HeapTupleGetRawDatum(tuple);
 
 	PG_RETURN_DATUM(result);
 }
@@ -911,7 +911,7 @@ copy_replication_slot(FunctionCallInfo fcinfo, bool logical_slot)
 		nulls[1] = true;
 
 	tuple = heap_form_tuple(tupdesc, values, nulls);
-	result = HeapTupleGetDatum(tuple);
+	result = HeapTupleGetRawDatum(tuple);
 
 	ReplicationSlotRelease();
 

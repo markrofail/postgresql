@@ -1922,7 +1922,8 @@ pg_stat_statements_info(PG_FUNCTION_ARGS)
 	values[0] = Int64GetDatum(stats.dealloc);
 	values[1] = TimestampTzGetDatum(stats.stats_reset);
 
-	PG_RETURN_DATUM(HeapTupleGetDatum(heap_form_tuple(tupdesc, values, nulls)));
+	PG_RETURN_HEAPTUPLEHEADER_RAW(
+			heap_form_tuple(tupdesc, values, nulls)->t_data);
 }
 
 /*

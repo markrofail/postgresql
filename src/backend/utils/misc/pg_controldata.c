@@ -73,7 +73,7 @@ pg_control_system(PG_FUNCTION_ARGS)
 
 	htup = heap_form_tuple(tupdesc, values, nulls);
 
-	PG_RETURN_DATUM(HeapTupleGetDatum(htup));
+	PG_RETURN_HEAPTUPLEHEADER_RAW(htup->t_data);
 }
 
 Datum
@@ -204,7 +204,7 @@ pg_control_checkpoint(PG_FUNCTION_ARGS)
 
 	htup = heap_form_tuple(tupdesc, values, nulls);
 
-	PG_RETURN_DATUM(HeapTupleGetDatum(htup));
+	PG_RETURN_HEAPTUPLEHEADER_RAW(htup->t_data);
 }
 
 Datum
@@ -257,7 +257,7 @@ pg_control_recovery(PG_FUNCTION_ARGS)
 
 	htup = heap_form_tuple(tupdesc, values, nulls);
 
-	PG_RETURN_DATUM(HeapTupleGetDatum(htup));
+	PG_RETURN_HEAPTUPLEHEADER_RAW(htup->t_data);
 }
 
 Datum
@@ -340,5 +340,5 @@ pg_control_init(PG_FUNCTION_ARGS)
 
 	htup = heap_form_tuple(tupdesc, values, nulls);
 
-	PG_RETURN_DATUM(HeapTupleGetDatum(htup));
+	PG_RETURN_HEAPTUPLEHEADER_RAW(htup->t_data);
 }

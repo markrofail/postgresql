@@ -787,7 +787,7 @@ pg_prepared_xact(PG_FUNCTION_ARGS)
 		values[4] = ObjectIdGetDatum(proc->databaseId);
 
 		tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
-		result = HeapTupleGetDatum(tuple);
+		result = HeapTupleGetRawDatum(tuple);
 		SRF_RETURN_NEXT(funcctx, result);
 	}
 

@@ -263,7 +263,7 @@ bt_page_stats_internal(PG_FUNCTION_ARGS, enum pageinspect_version ext_version)
 	tuple = BuildTupleFromCStrings(TupleDescGetAttInMetadata(tupleDesc),
 								   values);
 
-	result = HeapTupleGetDatum(tuple);
+	result = HeapTupleGetRawDatum(tuple);
 
 	PG_RETURN_DATUM(result);
 }
@@ -436,7 +436,7 @@ bt_page_print_tuples(struct user_args *uargs)
 	/* Build and return the result tuple */
 	tuple = heap_form_tuple(uargs->tupd, values, nulls);
 
-	return HeapTupleGetDatum(tuple);
+	return HeapTupleGetRawDatum(tuple);
 }
 
 /*-------------------------------------------------------
@@ -766,7 +766,7 @@ bt_metap(PG_FUNCTION_ARGS)
 	tuple = BuildTupleFromCStrings(TupleDescGetAttInMetadata(tupleDesc),
 								   values);
 
-	result = HeapTupleGetDatum(tuple);
+	result = HeapTupleGetRawDatum(tuple);
 
 	UnlockReleaseBuffer(buffer);
 	relation_close(rel, AccessShareLock);

@@ -3399,7 +3399,7 @@ pg_get_multixact_members(PG_FUNCTION_ARGS)
 
 		multi->iter++;
 		pfree(values[0]);
-		SRF_RETURN_NEXT(funccxt, HeapTupleGetDatum(tuple));
+		SRF_RETURN_NEXT(funccxt, HeapTupleGetRawDatum(tuple));
 	}
 
 	SRF_RETURN_DONE(funccxt);

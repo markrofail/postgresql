@@ -973,7 +973,7 @@ pgp_armor_headers(PG_FUNCTION_ARGS)
 
 		/* build a tuple */
 		tuple = BuildTupleFromCStrings(funcctx->attinmeta, values);
-		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tuple));
+		SRF_RETURN_NEXT(funcctx, HeapTupleGetRawDatum(tuple));
 	}
 }
 

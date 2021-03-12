@@ -159,7 +159,7 @@ pg_partition_tree(PG_FUNCTION_ARGS)
 		values[3] = Int32GetDatum(level);
 
 		tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
-		result = HeapTupleGetDatum(tuple);
+		result = HeapTupleGetRawDatum(tuple);
 		SRF_RETURN_NEXT(funcctx, result);
 	}
 
