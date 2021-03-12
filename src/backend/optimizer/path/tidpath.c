@@ -84,6 +84,9 @@ IsBinaryTidClause(RestrictInfo *rinfo, RelOptInfo *rel)
 	/* Must be an OpExpr */
 	if (!is_opclause(rinfo->clause))
 		return false;
+	/* Must not contain any volatile functions */
+	if (rinfo->has_volatile)
+		return false;
 	node = (OpExpr *) rinfo->clause;
 
 	/* OpExpr must have two arguments */
@@ -111,8 +114,7 @@ IsBinaryTidClause(RestrictInfo *rinfo, RelOptInfo *rel)
 		return false;
 
 	/* The other argument must be a pseudoconstant */
-	if (bms_is_member(rel->relid, other_relids) ||
-		contain_volatile_functions(other))
+	if (bms_is_member(rel->relid, other_relids))
 		return false;
 
 	return true;				/* success */
@@ -178,6 +180,9 @@ IsTidEqualAnyClause(PlannerInfo *root, RestrictInfo *rinfo, RelOptInfo *rel)
 	/* Must be a ScalarArrayOpExpr */
 	if (!(rinfo->clause && IsA(rinfo->clause, ScalarArrayOpExpr)))
 		return false;
+	/* We can safely reject if it's marked as volatile */
+	if (rinfo->has_volatile)
+		return false;
 	node = (ScalarArrayOpExpr *) rinfo->clause;
 
 	/* Operator must be tideq */
@@ -194,8 +199,7 @@ IsTidEqualAnyClause(PlannerInfo *root, RestrictInfo *rinfo, RelOptInfo *rel)
 		IsCTIDVar((Var *) arg1, rel))
 	{
 		/* The other argument must be a pseudoconstant */
-		if (bms_is_member(rel->relid, pull_varnos(root, arg2)) ||
-			contain_volatile_functions(arg2))
+		if (bms_is_member(rel->relid, pull_varnos(root, arg2)))
 			return false;
 
 		return true;			/* success */

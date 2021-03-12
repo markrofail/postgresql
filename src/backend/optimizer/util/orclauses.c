@@ -133,17 +133,18 @@ is_safe_restriction_clause_for(RestrictInfo *rinfo, RelOptInfo *rel)
 {
 	/*
 	 * We want clauses that mention the rel, and only the rel.  So in
-	 * particular pseudoconstant clauses can be rejected quickly.  Then check
-	 * the clause's Var membership.
+	 * particular pseudoconstant clauses can be rejected quickly.  Also,
+	 * checking volatility is cheap too, so do these before checking the
+	 * clause's Var membership.
 	 */
 	if (rinfo->pseudoconstant)
+		return false;
+	/* We don't want extra evaluations of any volatile functions */
+	if (rinfo->has_volatile)
 		return false;
 	if (!bms_equal(rinfo->clause_relids, rel->relids))
 		return false;
 
-	/* We don't want extra evaluations of any volatile functions */
-	if (contain_volatile_functions((Node *) rinfo->clause))
-		return false;
 
 	return true;
 }

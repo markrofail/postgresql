@@ -846,6 +846,21 @@ _outMaterial(StringInfo str, const Material *node)
 }
 
 static void
+_outResultCache(StringInfo str, const ResultCache *node)
+{
+	WRITE_NODE_TYPE("RESULTCACHE");
+
+	_outPlanInfo(str, (const Plan *) node);
+
+	WRITE_INT_FIELD(numKeys);
+	WRITE_OID_ARRAY(hashOperators, node->numKeys);
+	WRITE_OID_ARRAY(collations, node->numKeys);
+	WRITE_NODE_FIELD(param_exprs);
+	WRITE_BOOL_FIELD(singlerow);
+	WRITE_UINT_FIELD(est_entries);
+}
+
+static void
 _outSortInfo(StringInfo str, const Sort *node)
 {
 	_outPlanInfo(str, (const Plan *) node);
@@ -1919,6 +1934,21 @@ _outMaterialPath(StringInfo str, const MaterialPath *node)
 }
 
 static void
+_outResultCachePath(StringInfo str, const ResultCachePath *node)
+{
+	WRITE_NODE_TYPE("RESULTCACHEPATH");
+
+	_outPathInfo(str, (const Path *) node);
+
+	WRITE_NODE_FIELD(subpath);
+	WRITE_NODE_FIELD(hash_operators);
+	WRITE_NODE_FIELD(param_exprs);
+	WRITE_BOOL_FIELD(singlerow);
+	WRITE_FLOAT_FIELD(calls, "%.0f");
+	WRITE_UINT_FIELD(est_entries);
+}
+
+static void
 _outUniquePath(StringInfo str, const UniquePath *node)
 {
 	WRITE_NODE_TYPE("UNIQUEPATH");
@@ -2473,6 +2503,7 @@ _outPathTarget(StringInfo str, const PathTarget *node)
 	WRITE_FLOAT_FIELD(cost.startup, "%.2f");
 	WRITE_FLOAT_FIELD(cost.per_tuple, "%.2f");
 	WRITE_INT_FIELD(width);
+	WRITE_BOOL_FIELD(has_volatile_expr);
 }
 
 static void
@@ -2497,6 +2528,7 @@ _outRestrictInfo(StringInfo str, const RestrictInfo *node)
 	WRITE_BOOL_FIELD(can_join);
 	WRITE_BOOL_FIELD(pseudoconstant);
 	WRITE_BOOL_FIELD(leakproof);
+	WRITE_BOOL_FIELD(has_volatile);
 	WRITE_UINT_FIELD(security_level);
 	WRITE_BITMAPSET_FIELD(clause_relids);
 	WRITE_BITMAPSET_FIELD(required_relids);
@@ -3877,6 +3909,9 @@ outNode(StringInfo str, const void *obj)
 			case T_Material:
 				_outMaterial(str, obj);
 				break;
+			case T_ResultCache:
+				_outResultCache(str, obj);
+				break;
 			case T_Sort:
 				_outSort(str, obj);
 				break;
@@ -4110,6 +4145,9 @@ outNode(StringInfo str, const void *obj)
 				break;
 			case T_MaterialPath:
 				_outMaterialPath(str, obj);
+				break;
+			case T_ResultCachePath:
+				_outResultCachePath(str, obj);
 				break;
 			case T_UniquePath:
 				_outUniquePath(str, obj);

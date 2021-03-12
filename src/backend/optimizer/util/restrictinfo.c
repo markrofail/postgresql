@@ -137,6 +137,7 @@ make_restrictinfo_internal(PlannerInfo *root,
 	else
 		restrictinfo->leakproof = false;	/* really, "don't know" */
 
+	restrictinfo->has_volatile = contain_volatile_functions((Node *) clause);
 	/*
 	 * If it's a binary opclause, set up left/right relids info. In any case
 	 * set up the total clause relids info.

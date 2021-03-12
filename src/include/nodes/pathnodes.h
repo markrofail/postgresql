@@ -1087,6 +1087,8 @@ typedef struct PathTarget
 	Index	   *sortgrouprefs;	/* corresponding sort/group refnos, or 0 */
 	QualCost	cost;			/* cost of evaluating the expressions */
 	int			width;			/* estimated avg width of result tuples */
+	bool		has_volatile_expr;	/* True if any of 'exprs' has a volatile
+									 * function. */
 } PathTarget;
 
 /* Convenience macro to get a sort/group refno from a PathTarget */
@@ -1475,6 +1477,25 @@ typedef struct MaterialPath
 	Path		path;
 	Path	   *subpath;
 } MaterialPath;
+
+/*
+ * ResultCachePath represents a ResultCache plan node, i.e., a cache that
+ * caches tuples from parameterized paths to save the underlying node from
+ * having to be rescanned for parameter values which are already cached.
+ */
+typedef struct ResultCachePath
+{
+	Path		path;
+	Path	   *subpath;		/* outerpath to cache tuples from */
+	List	   *hash_operators; /* hash operators for each key */
+	List	   *param_exprs;	/* cache keys */
+	bool		singlerow;		/* true if the cache entry is to be marked as
+								 * complete after caching the first record. */
+	double		calls;			/* expected number of rescans */
+	uint32		est_entries;	/* The maximum number of entries that the
+								 * planner expects will fit in the cache, or 0
+								 * if unknown */
+} ResultCachePath;
 
 /*
  * UniquePath represents elimination of distinct rows from the output of
@@ -2016,6 +2037,8 @@ typedef struct RestrictInfo
 	bool		pseudoconstant; /* see comment above */
 
 	bool		leakproof;		/* true if known to contain no leaked Vars */
+
+	bool		has_volatile;	/* true if clause contains a volatile func */
 
 	Index		security_level; /* see comment above */
 

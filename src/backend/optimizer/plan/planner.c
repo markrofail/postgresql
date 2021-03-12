@@ -3717,7 +3717,8 @@ get_number_of_groups(PlannerInfo *root,
 					double		numGroups = estimate_num_groups(root,
 																groupExprs,
 																path_rows,
-																&gset);
+																&gset,
+																NULL);
 
 					gs->numGroups = numGroups;
 					rollup->numGroups += numGroups;
@@ -3742,7 +3743,8 @@ get_number_of_groups(PlannerInfo *root,
 					double		numGroups = estimate_num_groups(root,
 																groupExprs,
 																path_rows,
-																&gset);
+																&gset,
+																NULL);
 
 					gs->numGroups = numGroups;
 					gd->dNumHashGroups += numGroups;
@@ -3758,7 +3760,7 @@ get_number_of_groups(PlannerInfo *root,
 												 target_list);
 
 			dNumGroups = estimate_num_groups(root, groupExprs, path_rows,
-											 NULL);
+											 NULL, NULL);
 		}
 	}
 	else if (parse->groupingSets)
@@ -4807,7 +4809,7 @@ create_distinct_paths(PlannerInfo *root,
 												parse->targetList);
 		numDistinctRows = estimate_num_groups(root, distinctExprs,
 											  cheapest_input_path->rows,
-											  NULL);
+											  NULL, NULL);
 	}
 
 	/*
@@ -5903,7 +5905,13 @@ make_sort_input_target(PlannerInfo *root,
 				col_is_srf[i] = true;
 				have_srf = true;
 			}
-			else if (contain_volatile_functions((Node *) expr))
+
+			/*
+			 * We need only check if expr is volatile if the final_target has
+			 * any volatile functions.
+			 */
+			else if (final_target->has_volatile_expr &&
+					 contain_volatile_functions((Node *) expr))
 			{
 				/* Unconditionally postpone */
 				postpone_col[i] = true;

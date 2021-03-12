@@ -1990,6 +1990,7 @@ adjust_rowcount_for_semijoins(PlannerInfo *root,
 			nunique = estimate_num_groups(root,
 										  sjinfo->semi_rhs_exprs,
 										  nraw,
+										  NULL,
 										  NULL);
 			if (rowcount > nunique)
 				rowcount = nunique;
@@ -2502,7 +2503,7 @@ match_opclause_to_indexcol(PlannerInfo *root,
 	 */
 	if (match_index_to_operand(leftop, indexcol, index) &&
 		!bms_is_member(index_relid, rinfo->right_relids) &&
-		!contain_volatile_functions(rightop))
+		(!rinfo->has_volatile || !contain_volatile_functions(rightop)))
 	{
 		if (IndexCollMatchesExprColl(idxcollation, expr_coll) &&
 			op_in_opfamily(expr_op, opfamily))
@@ -2531,7 +2532,7 @@ match_opclause_to_indexcol(PlannerInfo *root,
 
 	if (match_index_to_operand(rightop, indexcol, index) &&
 		!bms_is_member(index_relid, rinfo->left_relids) &&
-		!contain_volatile_functions(leftop))
+		(!rinfo->has_volatile || !contain_volatile_functions(leftop)))
 	{
 		if (IndexCollMatchesExprColl(idxcollation, expr_coll))
 		{
@@ -2723,7 +2724,7 @@ match_saopclause_to_indexcol(PlannerInfo *root,
 	 */
 	if (match_index_to_operand(leftop, indexcol, index) &&
 		!bms_is_member(index_relid, right_relids) &&
-		!contain_volatile_functions(rightop))
+		(!rinfo->has_volatile || !contain_volatile_functions(rightop)))
 	{
 		if (IndexCollMatchesExprColl(idxcollation, expr_coll) &&
 			op_in_opfamily(expr_op, opfamily))
@@ -2805,14 +2806,14 @@ match_rowcompare_to_indexcol(PlannerInfo *root,
 	 */
 	if (match_index_to_operand(leftop, indexcol, index) &&
 		!bms_is_member(index_relid, pull_varnos(root, rightop)) &&
-		!contain_volatile_functions(rightop))
+		(!rinfo->has_volatile || !contain_volatile_functions(rightop)))
 	{
 		/* OK, indexkey is on left */
 		var_on_left = true;
 	}
 	else if (match_index_to_operand(rightop, indexcol, index) &&
 			 !bms_is_member(index_relid, pull_varnos(root, leftop)) &&
-			 !contain_volatile_functions(leftop))
+			 (!rinfo->has_volatile || !contain_volatile_functions(leftop)))
 	{
 		/* indexkey is on right, so commute the operator */
 		expr_op = get_commutator(expr_op);

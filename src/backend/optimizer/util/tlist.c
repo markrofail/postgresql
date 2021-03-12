@@ -623,6 +623,9 @@ make_pathtarget_from_tlist(List *tlist)
 		i++;
 	}
 
+	/* cache whether the tlist has any volatile functions */
+	target->has_volatile_expr = contain_volatile_functions((Node *) tlist);
+
 	return target;
 }
 
@@ -724,6 +727,10 @@ add_column_to_pathtarget(PathTarget *target, Expr *expr, Index sortgroupref)
 		target->sortgrouprefs = (Index *) palloc0(nexprs * sizeof(Index));
 		target->sortgrouprefs[nexprs - 1] = sortgroupref;
 	}
+
+	/* Check for new volatile functions, unless we already have one */
+	if (!target->has_volatile_expr)
+		target->has_volatile_expr = contain_volatile_functions((Node *) expr);
 }
 
 /*
