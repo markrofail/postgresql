@@ -47,6 +47,10 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 
+/* Parameters for loop count notification in GetNewOidWithIndex() function */
+#define GETNEWOID_NOTIFY_MINVAL 1000000
+#define GETNEWOID_NOTIFY_LIMIT 16000000
+
 /*
  * IsSystemRelation
  *		True iff the relation is either a system catalog or a toast table.
@@ -318,6 +322,8 @@ GetNewOidWithIndex(Relation relation, Oid indexId, AttrNumber oidcolumn)
 	SysScanDesc scan;
 	ScanKeyData key;
 	bool		collides;
+	uint64		retry_count;
+	uint64		next_notify;
 
 	/* Only system relations are supported */
 	Assert(IsSystemRelation(relation));
@@ -335,6 +341,8 @@ GetNewOidWithIndex(Relation relation, Oid indexId, AttrNumber oidcolumn)
 	Assert(!IsBinaryUpgrade || RelationGetRelid(relation) != TypeRelationId);
 
 	/* Generate new OIDs until we find one not in the table */
+	retry_count = 0;
+	next_notify = GETNEWOID_NOTIFY_MINVAL; /* next notify timing */
 	do
 	{
 		CHECK_FOR_INTERRUPTS();
@@ -353,7 +361,30 @@ GetNewOidWithIndex(Relation relation, Oid indexId, AttrNumber oidcolumn)
 		collides = HeapTupleIsValid(systable_getnext(scan));
 
 		systable_endscan(scan);
+
+		/*
+ 		 * Notify users when we iterate more than expected. Repeated notifications
+ 		 * are logged with exponentially increasing intervals so that we don't 
+ 		 * fill up the server log with the same messages.
+ 		 */
+		if (retry_count == next_notify && next_notify <= GETNEWOID_NOTIFY_LIMIT)
+		{
+			ereport(LOG,
+				(errmsg("failed to assign new OID in relation \"%s\" after \"%llu\" retries", 
+					RelationGetRelationName(relation), (unsigned long long) retry_count)));
+			next_notify *= 2; /* double it for the next notification */
+		}
+		retry_count++;
+
 	} while (collides);
+
+	/* if the retry log is output, the OID generation completion log is also output */
+	if (retry_count >= GETNEWOID_NOTIFY_MINVAL)
+	{
+		ereport(LOG,
+			(errmsg("the new OID has been assigned in relation \"%s\" after \"%llu\" retries",
+				RelationGetRelationName(relation), (unsigned long long) retry_count)));
+	}
 
 	return newOid;
 }
