@@ -116,8 +116,21 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 	if (expr == NULL)
 		return NULL;
 
+	/*
+	 * T_FuncCall: 349
+	 * EXPR_KIND_PUBLICATION_WHERE: 42
+	 */
+	elog(DEBUG3, "nodeTag(expr): %d ; pstate->p_expr_kind: %d", nodeTag(expr), pstate->p_expr_kind);
+
 	/* Guard against stack overflow due to overly complex expressions */
 	check_stack_depth();
+
+	/* Functions are not allowed in publication WHERE clauses */
+	if (pstate->p_expr_kind == EXPR_KIND_PUBLICATION_WHERE && nodeTag(expr) == T_FuncCall)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("functions are not allowed in publication WHERE expressions"),
+				 parser_errposition(pstate, exprLocation(expr))));
 
 	switch (nodeTag(expr))
 	{
@@ -508,6 +521,7 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
 		case EXPR_KIND_COPY_WHERE:
 		case EXPR_KIND_GENERATED_COLUMN:
 		case EXPR_KIND_CYCLE_MARK:
+		case EXPR_KIND_PUBLICATION_WHERE:
 			/* okay */
 			break;
 
@@ -1764,6 +1778,9 @@ transformSubLink(ParseState *pstate, SubLink *sublink)
 			break;
 		case EXPR_KIND_GENERATED_COLUMN:
 			err = _("cannot use subquery in column generation expression");
+			break;
+		case EXPR_KIND_PUBLICATION_WHERE:
+			err = _("cannot use subquery in publication WHERE expression");
 			break;
 
 			/*
@@ -3048,6 +3065,8 @@ ParseExprKindName(ParseExprKind exprKind)
 			return "GENERATED AS";
 		case EXPR_KIND_CYCLE_MARK:
 			return "CYCLE";
+		case EXPR_KIND_PUBLICATION_WHERE:
+			return "publication expression";
 
 			/*
 			 * There is intentionally no default: case here, so that the
