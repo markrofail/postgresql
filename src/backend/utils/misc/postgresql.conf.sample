@@ -190,6 +190,22 @@
 					# (change requires restart)
 #backend_flush_after = 0		# measured in pages, 0 disables
 
+# - SLRU Buffers -
+
+#multixact_offsets_slru_buffers = 8	# memory used for MultiXact offsets
+					# (change requires restart)
+#multixact_members_slru_buffers = 16	# memory used for MultiXact members
+					# (change requires restart)
+#subtrans_slru_buffers = 32			# memory used for subtransactions
+					# (change requires restart)
+#notify_slru_buffers = 8			# memory used for asynchronous notifications
+					# (change requires restart)
+#serial_slru_buffers = 16			# memory used for predicate locks
+					# (change requires restart)
+#clog_slru_buffers = 0				# memory used for CLOG
+					# (change requires restart)
+#commit_ts_slru_buffers = 0			# memory used for commit timestamps
+					# (change requires restart)
 
 #------------------------------------------------------------------------------
 # WRITE-AHEAD LOG

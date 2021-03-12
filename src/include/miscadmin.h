@@ -162,6 +162,14 @@ extern PGDLLIMPORT int MaxBackends;
 extern PGDLLIMPORT int MaxConnections;
 extern PGDLLIMPORT int max_worker_processes;
 extern PGDLLIMPORT int max_parallel_workers;
+extern PGDLLIMPORT int multixact_offsets_slru_buffers;
+extern PGDLLIMPORT int multixact_members_slru_buffers;
+extern PGDLLIMPORT int multixact_members_slru_buffers;
+extern PGDLLIMPORT int subtrans_slru_buffers;
+extern PGDLLIMPORT int notify_slru_buffers;
+extern PGDLLIMPORT int serial_slru_buffers;
+extern PGDLLIMPORT int clog_slru_buffers;
+extern PGDLLIMPORT int commit_ts_slru_buffers;
 
 extern PGDLLIMPORT int MyProcPid;
 extern PGDLLIMPORT pg_time_t MyStartTime;

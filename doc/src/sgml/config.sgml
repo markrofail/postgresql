@@ -1886,6 +1886,114 @@ include_dir 'conf.d'
        </para>
       </listitem>
      </varlistentry>
+     
+    <varlistentry id="guc-multixact-offsets-slru-buffers" xreflabel="multixact_offsets_slru_buffers">
+      <term><varname>multixact_offsets_slru_buffers</varname> (<type>integer</type>)
+      <indexterm>
+       <primary><varname>multixact_offsets_slru_buffers</varname> configuration parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+       <para>
+        Specifies the amount of memory to be used for MultiXact offsets. MultiXact offsets
+        are used to store information about offsets of multiple row lockers (caused by SELECT FOR UPDATE and others).
+        It defaults to 64 kilobytes (<literal>64KB</literal>).
+        This parameter can only be set at server start.
+       </para>
+      </listitem>
+     </varlistentry>
+
+    <varlistentry id="guc-multixact-members-slru-buffers" xreflabel="multixact_members_slru_buffers">
+      <term><varname>multixact_members_slru_buffers</varname> (<type>integer</type>)
+      <indexterm>
+       <primary><varname>multixact_members_slru_buffers</varname> configuration parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+       <para>
+        Specifies the amount of memory to be used for MultiXact members. MultiXact members
+        are used to store information about XIDs of multiple row lockers. Typically <varname>multixact_members_slru_buffers</varname>
+        is twice more than <varname>multixact_offsets_slru_buffers</varname>.
+        It defaults to 128 kilobytes (<literal>128KB</literal>).
+        This parameter can only be set at server start.
+       </para>
+      </listitem>
+     </varlistentry>
+     
+    <varlistentry id="guc-subtrans-buffers" xreflabel="subtrans_slru_buffers">
+      <term><varname>subtrans_slru_buffers</varname> (<type>integer</type>)
+      <indexterm>
+       <primary><varname>subtrans_slru_buffers</varname> configuration parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+       <para>
+        Specifies the amount of memory to be used for subtransactions.
+        It defaults to 256 kilobytes (<literal>256KB</literal>).
+        This parameter can only be set at server start.
+       </para>
+      </listitem>
+     </varlistentry>
+     
+    <varlistentry id="guc-notify-buffers" xreflabel="notify_slru_buffers">
+      <term><varname>notify_slru_buffers</varname> (<type>integer</type>)
+      <indexterm>
+       <primary><varname>notify_slru_buffers</varname> configuration parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+       <para>
+        Specifies the amount of memory to be used for asyncronous notifications (NOTIFY, LISTEN).
+        It defaults to 64 kilobytes (<literal>64KB</literal>).
+        This parameter can only be set at server start.
+       </para>
+      </listitem>
+     </varlistentry>
+     
+    <varlistentry id="guc-serial-buffers" xreflabel="serial_slru_buffers">
+      <term><varname>serial_slru_buffers</varname> (<type>integer</type>)
+      <indexterm>
+       <primary><varname>serial_slru_buffers</varname> configuration parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+       <para>
+        Specifies the amount of memory to be used for predicate locks.
+        It defaults to 128 kilobytes (<literal>128KB</literal>).
+        This parameter can only be set at server start.
+       </para>
+      </listitem>
+     </varlistentry>
+     
+    <varlistentry id="guc-clog-buffers" xreflabel="clog_slru_buffers">
+      <term><varname>clog_slru_buffers</varname> (<type>integer</type>)
+      <indexterm>
+       <primary><varname>clog_slru_buffers</varname> configuration parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+       <para>
+        Specifies the amount of memory to be used for CLOG.
+        It defaults to 0, in this case CLOG size is taken as <varname>shared_buffers</varname> / 512.
+        This parameter can only be set at server start.
+       </para>
+      </listitem>
+     </varlistentry>
+     
+    <varlistentry id="guc-commit-ts-buffers" xreflabel="commit_ts_slru_buffers">
+      <term><varname>commit_ts_slru_buffers</varname> (<type>integer</type>)
+      <indexterm>
+       <primary><varname>commit_ts_slru_buffers</varname> configuration parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+       <para>
+        Specifies the amount of memory to be used for commit timestamps.
+        It defaults to 0, in this case CLOG size is taken as <varname>shared_buffers</varname> / 512.
+        This parameter can only be set at server start.
+       </para>
+      </listitem>
+     </varlistentry>
 
      <varlistentry id="guc-max-stack-depth" xreflabel="max_stack_depth">
       <term><varname>max_stack_depth</varname> (<type>integer</type>)

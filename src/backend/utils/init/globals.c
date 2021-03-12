@@ -148,3 +148,11 @@ int64		VacuumPageDirty = 0;
 
 int			VacuumCostBalance = 0;	/* working state for vacuum */
 bool		VacuumCostActive = false;
+
+int			multixact_offsets_slru_buffers = 8;
+int			multixact_members_slru_buffers = 16;
+int			subtrans_slru_buffers = 32;
+int			notify_slru_buffers = 8;
+int			serial_slru_buffers = 16;
+int			clog_slru_buffers = 0;
+int			commit_ts_slru_buffers = 0;

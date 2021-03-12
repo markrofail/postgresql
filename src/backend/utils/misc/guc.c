@@ -2280,6 +2280,83 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
+		{"multixact_offsets_slru_buffers", PGC_POSTMASTER, RESOURCES_MEM,
+			gettext_noop("Sets the number of shared memory buffers used for MultiXact offsets SLRU."),
+			NULL,
+			GUC_UNIT_BLOCKS
+		},
+		&multixact_offsets_slru_buffers,
+		8, 2, INT_MAX / 2,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"multixact_members_slru_buffers", PGC_POSTMASTER, RESOURCES_MEM,
+			gettext_noop("Sets the number of shared memory buffers used for MultiXact members SLRU."),
+			NULL,
+			GUC_UNIT_BLOCKS
+		},
+		&multixact_members_slru_buffers,
+		16, 2, INT_MAX / 2,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"subtrans_slru_buffers", PGC_POSTMASTER, RESOURCES_MEM,
+			gettext_noop("Sets the number of shared memory buffers used for substransactions SLRU."),
+			NULL,
+			GUC_UNIT_BLOCKS
+		},
+		&subtrans_slru_buffers,
+		32, 2, INT_MAX / 2,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"notify_slru_buffers", PGC_POSTMASTER, RESOURCES_MEM,
+			gettext_noop("Sets the number of shared memory buffers used for asyncronous notifications SLRU."),
+			NULL,
+			GUC_UNIT_BLOCKS
+		},
+		&notify_slru_buffers,
+		8, 2, INT_MAX / 2,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"serial_slru_buffers", PGC_POSTMASTER, RESOURCES_MEM,
+			gettext_noop("Sets the number of shared memory buffers used for predicate locks SLRU."),
+			NULL,
+			GUC_UNIT_BLOCKS
+		},
+		&serial_slru_buffers,
+		16, 2, INT_MAX / 2,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"clog_slru_buffers", PGC_POSTMASTER, RESOURCES_MEM,
+			gettext_noop("Sets the number of shared memory buffers used for commit log SLRU."),
+			NULL,
+			GUC_UNIT_BLOCKS
+		},
+		&serial_slru_buffers,
+		0, 0, INT_MAX / 2,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"commit_ts_slru_buffers", PGC_POSTMASTER, RESOURCES_MEM,
+			gettext_noop("Sets the number of shared memory buffers used for commit timestamps SLRU."),
+			NULL,
+			GUC_UNIT_BLOCKS
+		},
+		&commit_ts_slru_buffers,
+		0, 0, INT_MAX / 2,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"temp_buffers", PGC_USERSET, RESOURCES_MEM,
 			gettext_noop("Sets the maximum number of temporary buffers used by each session."),
 			NULL,
