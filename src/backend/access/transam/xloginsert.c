@@ -33,6 +33,18 @@
 #include "storage/proc.h"
 #include "utils/memutils.h"
 
+#ifdef HAVE_LIBZ
+#include <zlib.h>
+#endif
+
+#ifdef USE_LZ4
+#include "lz4.h"
+#endif
+
+#ifdef USE_ZSTD
+#include "zstd.h"
+#endif
+
 /* Buffer size required to store a compressed version of backup block image */
 #define PGLZ_MAX_BLCKSZ PGLZ_MAX_OUTPUT(BLCKSZ)
 
@@ -113,7 +125,8 @@ static XLogRecData *XLogRecordAssemble(RmgrId rmid, uint8 info,
 									   XLogRecPtr RedoRecPtr, bool doPageWrites,
 									   XLogRecPtr *fpw_lsn, int *num_fpi);
 static bool XLogCompressBackupBlock(char *page, uint16 hole_offset,
-									uint16 hole_length, char *dest, uint16 *dlen);
+									uint16 hole_length, char *dest,
+									uint16 *dlen, WalCompression compression);
 
 /*
  * Begin constructing a WAL record. This must be called before the
@@ -630,11 +643,12 @@ XLogRecordAssemble(RmgrId rmid, uint8 info,
 			 */
 			if (wal_compression)
 			{
+				bimg.compression_method = wal_compression_method;
 				is_compressed =
 					XLogCompressBackupBlock(page, bimg.hole_offset,
 											cbimg.hole_length,
 											regbuf->compressed_page,
-											&compressed_len);
+											&compressed_len, bimg.compression_method);
 			}
 
 			/*
@@ -827,7 +841,7 @@ XLogRecordAssemble(RmgrId rmid, uint8 info,
  */
 static bool
 XLogCompressBackupBlock(char *page, uint16 hole_offset, uint16 hole_length,
-						char *dest, uint16 *dlen)
+						char *dest, uint16 *dlen, WalCompression compression)
 {
 	int32		orig_len = BLCKSZ - hole_length;
 	int32		len;
@@ -853,12 +867,72 @@ XLogCompressBackupBlock(char *page, uint16 hole_offset, uint16 hole_length,
 	else
 		source = page;
 
+	switch (compression)
+	{
+	case WAL_COMPRESSION_PGLZ:
+		len = pglz_compress(source, orig_len, dest, PGLZ_strategy_default);
+		break;
+
+#ifdef HAVE_LIBZ
+	case WAL_COMPRESSION_ZLIB:
+		{
+			unsigned long	len_l = PGLZ_MAX_BLCKSZ;
+			int ret = compress2((Bytef*)dest, &len_l, (Bytef*)source, orig_len,
+						Z_DEFAULT_COMPRESSION);
+			if (ret != Z_OK)
+			{
+				// XXX: using an interface other than compress() would allow giving a better error message
+				ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("failed compressing zlib (%d)", ret)));
+				len_l = -1;
+			}
+			len = len_l;
+			break;
+		}
+#endif
+
+#ifdef USE_LZ4
+	case WAL_COMPRESSION_LZ4:
+		len = LZ4_compress_fast(source, dest, orig_len, PGLZ_MAX_BLCKSZ, 1);
+		if (len == 0)
+			len = -1;
+		break;
+#endif
+
+#ifdef USE_ZSTD
+	case WAL_COMPRESSION_ZSTD:
+		len = ZSTD_compress(dest, PGLZ_MAX_BLCKSZ,
+				source, orig_len, ZSTD_CLEVEL_DEFAULT);
+		if (ZSTD_isError(len))
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("failed compressing zstd: %s",
+						 ZSTD_getErrorName(len))));
+			len = -1;
+		}
+
+		break;
+#endif
+
+	default:
+		/*
+		 * It should be impossible to get here for unsupported algorithms,
+		 * which cannot be assigned if they're not enabled at compile time.
+		 */
+		ereport(ERROR,
+			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+			 errmsg("unknown compression method requested: %d(%s)",
+				 compression, wal_compression_name(compression))));
+
+	}
+
 	/*
-	 * We recheck the actual size even if pglz_compress() reports success and
+	 * We recheck the actual size even if compression reports success and
 	 * see if the number of bytes saved by compression is larger than the
 	 * length of extra data needed for the compressed version of block image.
 	 */
-	len = pglz_compress(source, orig_len, dest, PGLZ_strategy_default);
 	if (len >= 0 &&
 		len + extra_bytes < orig_len)
 	{

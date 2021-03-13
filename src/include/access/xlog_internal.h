@@ -324,4 +324,14 @@ extern bool InArchiveRecovery;
 extern bool StandbyMode;
 extern char *recoveryRestoreCommand;
 
+typedef enum WalCompression
+{
+	WAL_COMPRESSION_PGLZ = 0,
+	WAL_COMPRESSION_ZLIB = 1,
+	WAL_COMPRESSION_LZ4 = 2,
+	WAL_COMPRESSION_ZSTD = 3,
+} WalCompression;
+
+extern const char *wal_compression_name(WalCompression compression);
+
 #endif							/* XLOG_INTERNAL_H */

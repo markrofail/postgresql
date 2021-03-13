@@ -987,6 +987,36 @@ PGAC_ARG_BOOL(with, zlib, yes,
 AC_SUBST(with_zlib)
 
 #
+# LZ4
+#
+AC_MSG_CHECKING([whether to build with LZ4 support])
+PGAC_ARG_BOOL(with, lz4, yes, [build without LZ4 support],
+              [AC_DEFINE([USE_LZ4], 1, [Define to 1 to build without LZ4 support. (--without-lz4)])])
+AC_MSG_RESULT([$with_lz4])
+AC_SUBST(with_lz4)
+
+if test "$with_lz4" = yes; then
+  PKG_CHECK_MODULES(LZ4, liblz4)
+  LIBS="$LZ4_LIBS $LIBS"
+  CFLAGS="$LZ4_CFLAGS $CFLAGS"
+fi
+
+#
+# ZSTD
+#
+AC_MSG_CHECKING([whether to build with zstd support])
+PGAC_ARG_BOOL(with, zstd, no, [build with zstd support],
+              [AC_DEFINE([USE_ZSTD], 1, [Define to 1 to build with zstd support. (--with-zstd)])])
+AC_MSG_RESULT([$with_zstd])
+AC_SUBST(with_zstd)
+
+if test "$with_zstd" = yes; then
+  PKG_CHECK_MODULES(ZSTD, libzstd)
+  LIBS="$ZSTD_LIBS $LIBS"
+  CFLAGS="$ZSTD_CFLAGS $CFLAGS"
+fi
+
+#
 # Assignments
 #
 
@@ -1405,6 +1435,28 @@ if test "$with_zlib" = yes; then
 If you have zlib already installed, see config.log for details on the
 failure.  It is possible the compiler isn't looking in the proper directory.
 Use --without-zlib to disable zlib support.])])
+fi
+
+if test "$with_lz4" = yes; then
+  ac_save_CPPFLAGS=$CPPFLAGS
+  CPPFLAGS="$LZ4_CFLAGS $CPPFLAGS"
+
+  # Verify we have LZ4's header files
+  AC_CHECK_HEADERS(lz4/lz4.h, [],
+       [AC_CHECK_HEADERS(lz4.h, [], [AC_MSG_ERROR([lz4.h header file is required for LZ4])])])
+
+  CPPFLAGS=$ac_save_CPPFLAGS
+fi
+
+if test "$with_zstd" = yes; then
+  ac_save_CPPFLAGS=$CPPFLAGS
+  CPPFLAGS="$ZSTD_CFLAGS $CPPFLAGS"
+
+  # Verify we have zstd's header files
+  AC_CHECK_HEADERS(zstd.h, [],
+       [AC_MSG_ERROR([zstd.h header file is required for zstd])])
+
+  CPPFLAGS=$ac_save_CPPFLAGS
 fi
 
 if test "$with_gssapi" = yes ; then
