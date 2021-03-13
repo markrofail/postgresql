@@ -1615,7 +1615,14 @@ ecpg_execute(struct statement *stmt)
 									   (const int *) stmt->paramlengths,
 									   (const int *) stmt->paramformats,
 									   0);
-		ecpg_log("ecpg_execute on line %d: using PQexecPrepared for \"%s\"\n", stmt->lineno, stmt->command);
+
+		// Use this to show that it's sending binary format params
+		if (stmt->nparams > 0 && false)
+			ecpg_log("ecpg_execute on line %d: using PQexecPrepared for \"%s\" (len0=%d/fmt0=%d)\n",
+					stmt->lineno, stmt->command, stmt->paramlengths[0], stmt->paramformats[0]);
+		else
+			ecpg_log("ecpg_execute on line %d: using PQexecPrepared for \"%s\"\n",
+					stmt->lineno, stmt->command);
 	}
 	else
 	{

@@ -28,6 +28,11 @@ exec sql begin declare section;
 	bytea recv_buf[2][DATA_SIZE];
 	bytea recv_vlen_buf[][DATA_SIZE];
 	bytea recv_short_buf[DATA_SIZE - LACK_SIZE];
+	bytea notjson[1] = {
+		.arr = "x",
+		.len = 1
+	};
+
 	int ind[2];
 exec sql end declare section;
 	int i, j, c;
@@ -114,6 +119,23 @@ while (0)
 
 	exec sql drop table test;
 	exec sql commit;
+
+	/* Tests for bind parameters output on error when params are sent in binary mode */
+
+	/* Should not show parameters on error, since it fails before the params have been parsed */
+	exec sql begin;
+	exec sql set log_parameter_max_length_on_error = -1;
+	exec sql prepare errparams2 from "SELECT $1::json";
+	exec sql execute errparams2 using :notjson;
+	exec sql rollback;
+
+	/* Should show parameters on error, since the failure is after the params have been parsed */
+	exec sql begin;
+	exec sql set log_parameter_max_length_on_error = -1;
+	exec sql prepare errparams1 from "SELECT a::json FROM (SELECT $1 AS a) AS sq";
+	exec sql execute errparams1 using :notjson;
+	exec sql rollback;
+
 	exec sql disconnect;
 
 	return 0;

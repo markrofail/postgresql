@@ -1693,13 +1693,129 @@ exec_bind_message(StringInfo input_message)
 	}
 
 	/*
+	 * Set the error callback so that parameters are logged, as needed.
+	 * This has no effect until params->paramValuesStr is set.
+	 */
+	params_data.portalName = portal->name;
+	params_data.params = NULL;
+	params_errcxt.previous = error_context_stack;
+	params_errcxt.callback = ParamsErrorCallback;
+	params_errcxt.arg = (void *) &params_data;
+	error_context_stack = &params_errcxt;
+
+	/*
 	 * Fetch parameters, if any, and store in the portal's memory context.
 	 */
 	if (numParams > 0)
 	{
 		char	  **knownTextValues = NULL; /* allocate on first use */
+		int32		*plengths;
+		char	  **pstrings;
+		bool		textonly = true;
+
+		plengths = palloc0(numParams * sizeof(*plengths));
+
+		/* Indexed by paramno, but not used for nulls */
+		pstrings = palloc0(numParams * sizeof(*pstrings));
 
 		params = makeParamList(numParams);
+		params_data.params = params;
+
+		/*
+		 * Do two loops to allow parameters to be displayed in error
+		 * reports during typinput.
+		 * On the first pass, just save the offset and length of each param;
+		 * On the second pass, convert the params to the required type.
+		 * If that fails, text params have already been saved and can
+		 * be displayed by the error callack.
+		 */
+
+		for (int paramno = 0; paramno < numParams; paramno++)
+		{
+			int32		plength;
+			int16		pformat;
+			char	   *pstring;
+			MemoryContext oldcxt;
+
+			plength = plengths[paramno] = pq_getmsgint(input_message, 4);
+
+			/* Minimal amount needed for error callback */
+			params->params[paramno].ptype = psrc->param_types[paramno];
+			params->params[paramno].isnull = (plength == -1);
+
+			if (params->params[paramno].isnull)
+				continue;
+
+			pstrings[paramno] = unconstify(char *, pq_getmsgbytes(input_message, plength));
+
+			if (log_parameter_max_length_on_error == 0)
+				continue;
+
+			if (numPFormats > 1)
+				pformat = pformats[paramno];
+			else if (numPFormats > 0)
+				pformat = pformats[0];
+			else
+				pformat = 0;	/* default = text */
+
+			if (pformat != 0)
+			{
+				textonly = false;
+				continue;
+			}
+
+			/*
+			 * Since we might need to log parameters later, save a copy of the
+			 * converted string in MessageContext;
+			 */
+
+			pstring = pg_client_to_server(pstrings[paramno], plength);
+			oldcxt = MemoryContextSwitchTo(MessageContext);
+
+			if (knownTextValues == NULL)
+				knownTextValues =
+					palloc0(numParams * sizeof(char *));
+
+			if (log_parameter_max_length_on_error < 0)
+			{
+				knownTextValues[paramno] = pstrdup(pstring);
+				knownTextValues[paramno][plength] = 0;
+			}
+			else
+			{
+				/*
+				 * We can trim the saved string, knowing that we
+				 * won't print all of it.  But we must copy at
+				 * least two more full characters than
+				 * BuildParamLogString wants to use; otherwise it
+				 * might fail to include the trailing ellipsis.
+				 */
+				char csave = pstring[plength];
+				pstring[plength] = 0;
+				knownTextValues[paramno] =
+					pnstrdup(pstring,
+							 log_parameter_max_length_on_error
+							 + 2 * MAX_MULTIBYTE_CHAR_LEN);
+				pstring[plength] = csave;
+			}
+
+			MemoryContextSwitchTo(oldcxt);
+			if (pstring != pstrings[paramno])
+				pfree(pstring);
+		}
+
+		/*
+		 * Once all parameters have been received, prepare for printing them
+		 * in errors, if configured to do so.  (This is saved in the portal,
+		 * so that they'll appear when the query is executed later.)
+		 * If all parameters are text, this is done before calling the input
+		 * function, to allow reporting values during errors there.
+		 */
+		if (log_parameter_max_length_on_error != 0 && textonly)
+			// (numPFormats == 0 || (numPFormats == 1 && pformats[0] == 0)))
+			params->paramValuesStr = BuildParamLogString(params,
+									knownTextValues,
+									log_parameter_max_length_on_error);
 
 		for (int paramno = 0; paramno < numParams; paramno++)
 		{
@@ -1711,13 +1827,11 @@ exec_bind_message(StringInfo input_message)
 			char		csave;
 			int16		pformat;
 
-			plength = pq_getmsgint(input_message, 4);
+			plength = plengths[paramno];
 			isNull = (plength == -1);
 
 			if (!isNull)
 			{
-				const char *pvalue = pq_getmsgbytes(input_message, plength);
-
 				/*
 				 * Rather than copying data around, we just set up a phony
 				 * StringInfo pointing to the correct portion of the message
@@ -1726,7 +1840,7 @@ exec_bind_message(StringInfo input_message)
 				 * trailing null.  This is grotty but is a big win when
 				 * dealing with very large parameter strings.
 				 */
-				pbuf.data = unconstify(char *, pvalue);
+				pbuf.data = pstrings[paramno];
 				pbuf.maxlen = plength + 1;
 				pbuf.len = plength;
 				pbuf.cursor = 0;
@@ -1766,45 +1880,9 @@ exec_bind_message(StringInfo input_message)
 
 				pval = OidInputFunctionCall(typinput, pstring, typioparam, -1);
 
-				/*
-				 * If we might need to log parameters later, save a copy of
-				 * the converted string in MessageContext; then free the
-				 * result of encoding conversion, if any was done.
-				 */
-				if (pstring)
-				{
-					if (log_parameter_max_length_on_error != 0)
-					{
-						MemoryContext oldcxt;
-
-						oldcxt = MemoryContextSwitchTo(MessageContext);
-
-						if (knownTextValues == NULL)
-							knownTextValues =
-								palloc0(numParams * sizeof(char *));
-
-						if (log_parameter_max_length_on_error < 0)
-							knownTextValues[paramno] = pstrdup(pstring);
-						else
-						{
-							/*
-							 * We can trim the saved string, knowing that we
-							 * won't print all of it.  But we must copy at
-							 * least two more full characters than
-							 * BuildParamLogString wants to use; otherwise it
-							 * might fail to include the trailing ellipsis.
-							 */
-							knownTextValues[paramno] =
-								pnstrdup(pstring,
-										 log_parameter_max_length_on_error
-										 + 2 * MAX_MULTIBYTE_CHAR_LEN);
-						}
-
-						MemoryContextSwitchTo(oldcxt);
-					}
-					if (pstring != pbuf.data)
-						pfree(pstring);
-				}
+				/* free the result of encoding conversion, if any was done. */
+				if (pstring && pstring != pbuf.data)
+					pfree(pstring);
 			}
 			else if (pformat == 1)	/* binary mode */
 			{
@@ -1856,29 +1934,22 @@ exec_bind_message(StringInfo input_message)
 		}
 
 		/*
-		 * Once all parameters have been received, prepare for printing them
-		 * in errors, if configured to do so.  (This is saved in the portal,
-		 * so that they'll appear when the query is executed later.)
+		 * If there are any non-text parameters, enable parameter output only
+		 * after calling the input functions
 		 */
-		if (log_parameter_max_length_on_error != 0)
-			params->paramValuesStr =
-				BuildParamLogString(params,
+		if (log_parameter_max_length_on_error != 0 && !textonly)
+			params->paramValuesStr = BuildParamLogString(params,
 									knownTextValues,
 									log_parameter_max_length_on_error);
+
+		pfree(plengths);
+		pfree(pstrings);
 	}
 	else
 		params = NULL;
 
 	/* Done storing stuff in portal's context */
 	MemoryContextSwitchTo(oldContext);
-
-	/* Set the error callback so that parameters are logged, as needed  */
-	params_data.portalName = portal->name;
-	params_data.params = params;
-	params_errcxt.previous = error_context_stack;
-	params_errcxt.callback = ParamsErrorCallback;
-	params_errcxt.arg = (void *) &params_data;
-	error_context_stack = &params_errcxt;
 
 	/* Get the result format codes */
 	numRFormats = pq_getmsgint(input_message, 2);

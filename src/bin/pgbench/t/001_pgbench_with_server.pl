@@ -350,6 +350,7 @@ $node->append_conf('postgresql.conf',
 	  . "log_parameter_max_length = 7\n"
 	  . "log_parameter_max_length_on_error = -1");
 $node->reload;
+
 pgbench(
 	'-n -t1 -c1 -M prepared',
 	2,
@@ -388,6 +389,23 @@ like(
 	qr[DETAIL:  parameters: \$1 = '\{ inval\.\.\.', \$2 = '''Valame\.\.\.'],
 	"parameter report truncates");
 $log = undef;
+
+# Check that errors happen during BIND phase, too
+pgbench(
+	'-n -t1 -c1 -M prepared',
+	2,
+	[],
+	[
+		qr{ERROR:  invalid input syntax for type smallint: "1a"},
+		qr{CONTEXT:  unnamed portal with parameters: \$1 = '1a'}
+	],
+	'server parameter logging',
+	{
+		'001_param_6' => q{select '1a' as value \gset
+select :value::smallint;
+}
+	});
+
 
 # Restore default logging config
 $node->append_conf('postgresql.conf',
