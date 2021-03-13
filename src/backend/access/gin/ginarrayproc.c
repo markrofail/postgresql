@@ -121,7 +121,6 @@ ginqueryarrayextract(PG_FUNCTION_ARGS)
 		case GinOverlapStrategy:
 			*searchMode = GIN_SEARCH_MODE_DEFAULT;
 			break;
-		case GinContainsElemStrategy:
 		case GinContainsStrategy:
 			if (nelems > 0)
 				*searchMode = GIN_SEARCH_MODE_DEFAULT;
@@ -138,6 +137,8 @@ ginqueryarrayextract(PG_FUNCTION_ARGS)
 			else
 				*searchMode = GIN_SEARCH_MODE_INCLUDE_EMPTY;
 			break;
+		case GinContainsElemStrategy:
+				*searchMode = GIN_SEARCH_MODE_DEFAULT;
 		default:
 			elog(ERROR, "ginqueryarrayextract: unknown strategy number: %d",
 				 strategy);
@@ -197,7 +198,6 @@ ginarrayconsistent(PG_FUNCTION_ARGS)
 				}
 			}
 			break;
-		case GinContainsElemStrategy:
 		case GinContainedStrategy:
 			/* we will need recheck */
 			*recheck = true;
@@ -223,6 +223,17 @@ ginarrayconsistent(PG_FUNCTION_ARGS)
 				}
 			}
 			break;
+		case GinContainsElemStrategy:
+			/* we will need recheck */
+			*recheck = true;
+			if (!check[0] || nullFlags[0])
+			{
+				res = false;
+			}
+			else
+			{
+				res = true;
+			}
 		default:
 			elog(ERROR, "ginarrayconsistent: unknown strategy number: %d",
 				 strategy);
@@ -287,7 +298,6 @@ ginarraytriconsistent(PG_FUNCTION_ARGS)
 				}
 			}
 			break;
-		case GinContainsElemStrategy:
 		case GinContainedStrategy:
 			/* can't do anything else useful here */
 			res = GIN_MAYBE;
@@ -307,6 +317,19 @@ ginarraytriconsistent(PG_FUNCTION_ARGS)
 					res = GIN_FALSE;
 					break;
 				}
+			}
+			break;
+		case GinContainsElemStrategy:
+			/* must have all elements in check[] true, and no nulls */
+			res = GIN_TRUE;
+			if (check[0] == GIN_FALSE || nullFlags[0])
+			{
+				res = GIN_FALSE;
+				break;
+			}
+			if (check[0] == GIN_MAYBE)
+			{
+				res = GIN_MAYBE;
 			}
 			break;
 		default:
