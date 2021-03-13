@@ -443,7 +443,7 @@ static Node *makeRecursiveViewSelect(char *relname, List *aliases, Node *query);
 %type <node>	for_locking_item
 %type <list>	for_locking_clause opt_for_locking_clause for_locking_items
 %type <list>	locked_rels_list
-%type <boolean>	all_or_distinct
+%type <boolean>	all_or_distinct distinct_or_all
 
 %type <node>	join_qual
 %type <jtype>	join_type
@@ -11294,7 +11294,8 @@ simple_select:
 					n->intoClause = $4;
 					n->fromClause = $5;
 					n->whereClause = $6;
-					n->groupClause = $7;
+					n->groupClause = linitial($7);
+					n->groupDistinct = (bool) intVal(lsecond($7));
 					n->havingClause = $8;
 					n->windowClause = $9;
 					$$ = (Node *)n;
@@ -11309,7 +11310,8 @@ simple_select:
 					n->intoClause = $4;
 					n->fromClause = $5;
 					n->whereClause = $6;
-					n->groupClause = $7;
+					n->groupClause = linitial($7);
+					n->groupDistinct = (bool) intVal(lsecond($7));
 					n->havingClause = $8;
 					n->windowClause = $9;
 					$$ = (Node *)n;
@@ -11542,9 +11544,16 @@ opt_table:	TABLE
 			| /*EMPTY*/
 		;
 
+/* The difference between these two is the default */
 all_or_distinct:
 			ALL										{ $$ = true; }
 			| DISTINCT								{ $$ = false; }
+			| /*EMPTY*/								{ $$ = false; }
+		;
+
+distinct_or_all:
+			DISTINCT								{ $$ = true; }
+			| ALL									{ $$ = false; }
 			| /*EMPTY*/								{ $$ = false; }
 		;
 
@@ -11771,8 +11780,8 @@ first_or_next: FIRST_P								{ $$ = 0; }
  * GroupingSet node of some type.
  */
 group_clause:
-			GROUP_P BY group_by_list				{ $$ = $3; }
-			| /*EMPTY*/								{ $$ = NIL; }
+			GROUP_P BY distinct_or_all group_by_list	{ $$ = list_make2($4, makeInteger((int) $3)); }
+			| /*EMPTY*/									{ $$ = list_make2(NIL, makeInteger((int) false)); }
 		;
 
 group_by_list:
@@ -15145,7 +15154,8 @@ PLpgSQL_Expr: opt_distinct_clause opt_target_list
 					n->targetList = $2;
 					n->fromClause = $3;
 					n->whereClause = $4;
-					n->groupClause = $5;
+					n->groupClause = linitial($5);
+					n->groupDistinct = (bool) intVal(lsecond($5));
 					n->havingClause = $6;
 					n->windowClause = $7;
 					n->sortClause = $8;

@@ -146,6 +146,7 @@ typedef struct Query
 	List	   *returningList;	/* return-values list (of TargetEntry) */
 
 	List	   *groupClause;	/* a list of SortGroupClause's */
+	bool		groupDistinct;	/* is the group by clause distinct? */
 
 	List	   *groupingSets;	/* a list of GroupingSet's if present */
 
@@ -1629,6 +1630,7 @@ typedef struct SelectStmt
 	List	   *fromClause;		/* the FROM clause */
 	Node	   *whereClause;	/* WHERE qualification */
 	List	   *groupClause;	/* GROUP BY clauses */
+	bool		groupDistinct;	/* Is this GROUP BY DISTINCT? */
 	Node	   *havingClause;	/* HAVING conditional-expression */
 	List	   *windowClause;	/* WINDOW window_name AS (...), ... */
 

@@ -1372,6 +1372,47 @@ GROUP BY GROUPING SETS (
 </programlisting>
    </para>
 
+   <para>
+    When specifying multiple grouping items together, the final set of grouping
+    sets might contain duplicates. For example:
+<programlisting>
+GROUP BY ROLLUP (a, b), ROLLUP (a, c)
+</programlisting>
+    is equivalent to
+<programlisting>
+GROUP BY GROUPING SETS (
+    (a, b, c),
+    (a, b),
+    (a, b),
+    (a, c),
+    (a),
+    (a),
+    (a, c),
+    (a),
+    ()
+)
+</programlisting>
+    If these duplicates are undesirable, they can be removed using the
+    <literal>DISTINCT</literal> clause directly on the <literal>GROUP BY</literal>.
+    Therefore:
+<programlisting>
+GROUP BY <emphasis>DISTINCT</emphasis> ROLLUP (a, b), ROLLUP (a, c)
+</programlisting>
+    is equivalent to
+<programlisting>
+GROUP BY GROUPING SETS (
+    (a, b, c),
+    (a, b),
+    (a, c),
+    (a),
+    ()
+)
+</programlisting>
+    This is not the same as using <literal>SELECT DISTINCT</literal> because the output
+    rows may still contain duplicates.  If any of the ungrouped columns contains NULL,
+    it will be indistinguishable from the NULL used when that same column is grouped.
+   </para>
+
   <note>
    <para>
     The construct <literal>(a, b)</literal> is normally recognized in expressions as
