@@ -668,3 +668,86 @@ NOTICE:  relation "matview_ine_tab" already exists, skipping
 (0 rows)
 
 DROP MATERIALIZED VIEW matview_ine_tab;
+-- test cases for explain/explain analyze refresh materialized view
+CREATE TABLE mv_exp_tbl (a) AS SELECT * FROM generate_series(1, 10);
+CREATE MATERIALIZED VIEW mv_exp (a) AS
+  SELECT * FROM mv_exp_tbl WHERE a > 5;
+EXPLAIN (COSTS OFF)
+  REFRESH MATERIALIZED VIEW mv_exp WITH NO DATA;
+       QUERY PLAN       
+------------------------
+ Seq Scan on mv_exp_tbl
+   Filter: (a > 5)
+(2 rows)
+
+REFRESH MATERIALIZED VIEW mv_exp WITH NO DATA;
+EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF)
+  REFRESH MATERIALIZED VIEW mv_exp WITH NO DATA;
+               QUERY PLAN                
+-----------------------------------------
+ Seq Scan on mv_exp_tbl (never executed)
+   Filter: (a > 5)
+(2 rows)
+
+SELECT * FROM mv_exp ORDER BY 1; -- ERROR
+ERROR:  materialized view "mv_exp" has not been populated
+HINT:  Use the REFRESH MATERIALIZED VIEW command.
+EXPLAIN (COSTS OFF)
+  REFRESH MATERIALIZED VIEW mv_exp;
+       QUERY PLAN       
+------------------------
+ Seq Scan on mv_exp_tbl
+   Filter: (a > 5)
+(2 rows)
+
+REFRESH MATERIALIZED VIEW mv_exp;
+EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF)
+  REFRESH MATERIALIZED VIEW mv_exp;
+                   QUERY PLAN                   
+------------------------------------------------
+ Seq Scan on mv_exp_tbl (actual rows=5 loops=1)
+   Filter: (a > 5)
+   Rows Removed by Filter: 5
+(3 rows)
+
+SELECT * FROM mv_exp ORDER BY 1; -- OK
+ a  
+----
+  6
+  7
+  8
+  9
+ 10
+(5 rows)
+
+CREATE UNIQUE INDEX ON mv_exp (a);
+EXPLAIN (COSTS OFF)
+  REFRESH MATERIALIZED VIEW CONCURRENTLY mv_exp;
+       QUERY PLAN       
+------------------------
+ Seq Scan on mv_exp_tbl
+   Filter: (a > 5)
+(2 rows)
+
+REFRESH MATERIALIZED VIEW CONCURRENTLY mv_exp;
+EXPLAIN (ANALYZE, COSTS OFF, SUMMARY OFF, TIMING OFF)
+  REFRESH MATERIALIZED VIEW CONCURRENTLY mv_exp;
+                   QUERY PLAN                   
+------------------------------------------------
+ Seq Scan on mv_exp_tbl (actual rows=5 loops=1)
+   Filter: (a > 5)
+   Rows Removed by Filter: 5
+(3 rows)
+
+SELECT * FROM mv_exp ORDER BY 1; -- OK
+ a  
+----
+  6
+  7
+  8
+  9
+ 10
+(5 rows)
+
+DROP MATERIALIZED VIEW mv_exp;
+DROP TABLE mv_exp_tbl;

@@ -95,6 +95,8 @@ EXPLAIN [ ANALYZE ] [ VERBOSE ] <replaceable class="parameter">statement</replac
     <command>EXPLAIN ANALYZE</command> on an
     <command>INSERT</command>, <command>UPDATE</command>,
     <command>DELETE</command>, <command>CREATE TABLE AS</command>,
+    <command>CREATE MATERIALIZED VIEW</command>,
+    <command>REFRESH MATERIALIZED VIEW</command>,
     or <command>EXECUTE</command> statement
     without letting the command affect your data, use this approach:
 <programlisting>

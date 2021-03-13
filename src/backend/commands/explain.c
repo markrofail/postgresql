@@ -17,6 +17,7 @@
 #include "catalog/pg_type.h"
 #include "commands/createas.h"
 #include "commands/defrem.h"
+#include "commands/matview.h"
 #include "commands/prepare.h"
 #include "executor/nodeHash.h"
 #include "foreign/fdwapi.h"
@@ -53,10 +54,6 @@ explain_get_index_name_hook_type explain_get_index_name_hook = NULL;
 #define X_CLOSE_IMMEDIATE 2
 #define X_NOWHITESPACE 4
 
-static void ExplainOneQuery(Query *query, int cursorOptions,
-							IntoClause *into, ExplainState *es,
-							const char *queryString, ParamListInfo params,
-							QueryEnvironment *queryEnv);
 static void ExplainPrintJIT(ExplainState *es, int jit_flags,
 							JitInstrumentation *ji);
 static void report_triggers(ResultRelInfo *rInfo, bool show_relname,
@@ -274,7 +271,8 @@ ExplainQuery(ParseState *pstate, ExplainStmt *stmt,
 		{
 			ExplainOneQuery(lfirst_node(Query, l),
 							CURSOR_OPT_PARALLEL_OK, NULL, es,
-							pstate->p_sourcetext, params, pstate->p_queryEnv);
+							pstate->p_sourcetext, params, pstate->p_queryEnv,
+							NULL);
 
 			/* Separate plans with an appropriate separator */
 			if (lnext(rewritten, l) != NULL)
@@ -357,11 +355,11 @@ ExplainResultDesc(ExplainStmt *stmt)
  *
  * "into" is NULL unless we are explaining the contents of a CreateTableAsStmt.
  */
-static void
+void
 ExplainOneQuery(Query *query, int cursorOptions,
 				IntoClause *into, ExplainState *es,
 				const char *queryString, ParamListInfo params,
-				QueryEnvironment *queryEnv)
+				QueryEnvironment *queryEnv, RefreshMatViewInfo *matviewInfo)
 {
 	/* planner will not cope with utility statements */
 	if (query->commandType == CMD_UTILITY)
@@ -402,7 +400,8 @@ ExplainOneQuery(Query *query, int cursorOptions,
 
 		/* run it (if needed) and produce output */
 		ExplainOnePlan(plan, into, es, queryString, params, queryEnv,
-					   &planduration, (es->buffers ? &bufusage : NULL));
+					   &planduration, (es->buffers ? &bufusage : NULL),
+					   matviewInfo);
 	}
 }
 
@@ -455,7 +454,7 @@ ExplainOneUtility(Node *utilityStmt, IntoClause *into, ExplainState *es,
 		Assert(list_length(rewritten) == 1);
 		ExplainOneQuery(linitial_node(Query, rewritten),
 						CURSOR_OPT_PARALLEL_OK, ctas->into, es,
-						queryString, params, queryEnv);
+						queryString, params, queryEnv, NULL);
 	}
 	else if (IsA(utilityStmt, DeclareCursorStmt))
 	{
@@ -474,7 +473,8 @@ ExplainOneUtility(Node *utilityStmt, IntoClause *into, ExplainState *es,
 		Assert(list_length(rewritten) == 1);
 		ExplainOneQuery(linitial_node(Query, rewritten),
 						dcs->options, NULL, es,
-						queryString, params, queryEnv);
+						queryString, params, queryEnv,
+						NULL);
 	}
 	else if (IsA(utilityStmt, ExecuteStmt))
 		ExplainExecuteQuery((ExecuteStmt *) utilityStmt, into, es,
@@ -485,6 +485,16 @@ ExplainOneUtility(Node *utilityStmt, IntoClause *into, ExplainState *es,
 			appendStringInfoString(es->str, "NOTIFY\n");
 		else
 			ExplainDummyGroup("Notify", NULL, es);
+	}
+	else if(IsA(utilityStmt, RefreshMatViewStmt))
+	{
+		RefreshMatViewExplainInfo explainInfo;
+
+		explainInfo.es = es;
+		explainInfo.queryEnv = queryEnv;
+
+		ExecRefreshMatView((RefreshMatViewStmt *) utilityStmt,
+							queryString, params, NULL, &explainInfo);
 	}
 	else
 	{
@@ -512,7 +522,7 @@ void
 ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 			   const char *queryString, ParamListInfo params,
 			   QueryEnvironment *queryEnv, const instr_time *planduration,
-			   const BufferUsage *bufusage)
+			   const BufferUsage *bufusage, RefreshMatViewInfo *matviewInfo)
 {
 	DestReceiver *dest;
 	QueryDesc  *queryDesc;
@@ -553,6 +563,8 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 	 */
 	if (into)
 		dest = CreateIntoRelDestReceiver(into);
+	else if (matviewInfo && OidIsValid(matviewInfo->OIDNewHeap))
+		dest = CreateTransientRelDestReceiver(matviewInfo->OIDNewHeap);
 	else
 		dest = None_Receiver;
 
@@ -577,14 +589,26 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 	{
 		ScanDirection dir;
 
-		/* EXPLAIN ANALYZE CREATE TABLE AS WITH NO DATA is weird */
-		if (into && into->skipData)
+		/*
+		 * EXPLAIN ANALYZE CREATE TABLE AS WITH NO DATA or EXPLAN ANALYZE
+		 * REFRESH MATERIALIZED VIEW WITH NO DATA is weird.
+		 */
+		if ((into && into->skipData) ||
+			(matviewInfo && matviewInfo->skipData))
 			dir = NoMovementScanDirection;
 		else
 			dir = ForwardScanDirection;
 
 		/* run the plan */
 		ExecutorRun(queryDesc, dir, 0L, true);
+
+		/*
+		 * Collect the number of rows inserted in case of REFRESH MATERIALIZED
+		 * VIEW which will be used while merging the newly generated data with
+		 * the existing materialized view data in ExecRefreshMatView.
+		 */
+		if (matviewInfo)
+			matviewInfo->processed = queryDesc->estate->es_processed;
 
 		/* run cleanup too */
 		ExecutorFinish(queryDesc);

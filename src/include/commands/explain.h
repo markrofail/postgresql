@@ -61,6 +61,27 @@ typedef struct ExplainState
 	ExplainWorkersState *workers_state; /* needed if parallel plan */
 } ExplainState;
 
+/*
+ * Refresh Materialized View information passed across functions for EXPLAIN
+ * execution.
+ */
+typedef struct RefreshMatViewInfo
+{
+	/* Oid of the new heap created. */
+	Oid OIDNewHeap;
+	/* Is WITH NO DATA clause specified? */
+	bool skipData;
+	/* Number of rows inserted. */
+	uint64 processed;
+} RefreshMatViewInfo;
+
+/* EXPLAIN information shared to ExecRefreshMatView(). */
+typedef struct RefreshMatViewExplainInfo
+{
+	ExplainState *es;
+	QueryEnvironment *queryEnv;
+} RefreshMatViewExplainInfo;
+
 /* Hook for plugins to get control in ExplainOneQuery() */
 typedef void (*ExplainOneQuery_hook_type) (Query *query,
 										   int cursorOptions,
@@ -91,7 +112,14 @@ extern void ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into,
 						   ExplainState *es, const char *queryString,
 						   ParamListInfo params, QueryEnvironment *queryEnv,
 						   const instr_time *planduration,
-						   const BufferUsage *bufusage);
+						   const BufferUsage *bufusage,
+						   RefreshMatViewInfo *matviewInfo);
+
+extern void ExplainOneQuery(Query *query, int cursorOptions,
+							IntoClause *into, ExplainState *es,
+							const char *queryString, ParamListInfo params,
+							QueryEnvironment *queryEnv,
+							RefreshMatViewInfo *matviewInfo);
 
 extern void ExplainPrintPlan(ExplainState *es, QueryDesc *queryDesc);
 extern void ExplainPrintTriggers(ExplainState *es, QueryDesc *queryDesc);
