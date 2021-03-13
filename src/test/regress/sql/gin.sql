@@ -3,6 +3,10 @@
 --
 -- There are other tests to test different GIN opclasses. This is for testing
 -- GIN itself.
+create table GINA(i int4[]);
+create index GINA on gin_test_tbl using gin;
+insert into GINA select array[g] from generate_series(1, 10) g;
+select count(*) from GINA where i @>> 1;
 
 -- Create and populate a test table with a GIN index.
 create table gin_test_tbl(i int4[]) with (autovacuum_enabled = off);
