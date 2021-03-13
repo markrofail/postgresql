@@ -116,6 +116,9 @@
 #include "utils/snapmgr.h"
 
 static bool table_states_valid = false;
+static List *table_states_not_ready = NIL;
+static List *table_states_all = NIL;
+static void FetchTableStates(bool *started_tx);
 
 StringInfo	copybuf = NULL;
 
@@ -279,6 +282,12 @@ process_syncing_tables_for_sync(XLogRecPtr current_lsn)
 {
 	SpinLockAcquire(&MyLogicalRepWorker->relmutex);
 
+	elog(LOG,
+		 "!!> process_syncing_tables_for_sync: state = '%c', current_lsn = %X/%X, relstate_lsn = %X/%X",
+		 MyLogicalRepWorker->relstate,
+		 LSN_FORMAT_ARGS(current_lsn),
+		 LSN_FORMAT_ARGS(MyLogicalRepWorker->relstate_lsn));
+
 	if (MyLogicalRepWorker->relstate == SUBREL_STATE_CATCHUP &&
 		current_lsn >= MyLogicalRepWorker->relstate_lsn)
 	{
@@ -359,7 +368,6 @@ process_syncing_tables_for_apply(XLogRecPtr current_lsn)
 		Oid			relid;
 		TimestampTz last_start_time;
 	};
-	static List *table_states = NIL;
 	static HTAB *last_start_times = NULL;
 	ListCell   *lc;
 	bool		started_tx = false;
@@ -367,42 +375,14 @@ process_syncing_tables_for_apply(XLogRecPtr current_lsn)
 	Assert(!IsTransactionState());
 
 	/* We need up-to-date sync state info for subscription tables here. */
-	if (!table_states_valid)
-	{
-		MemoryContext oldctx;
-		List	   *rstates;
-		ListCell   *lc;
-		SubscriptionRelState *rstate;
-
-		/* Clean the old list. */
-		list_free_deep(table_states);
-		table_states = NIL;
-
-		StartTransactionCommand();
-		started_tx = true;
-
-		/* Fetch all non-ready tables. */
-		rstates = GetSubscriptionNotReadyRelations(MySubscription->oid);
-
-		/* Allocate the tracking info in a permanent memory context. */
-		oldctx = MemoryContextSwitchTo(CacheMemoryContext);
-		foreach(lc, rstates)
-		{
-			rstate = palloc(sizeof(SubscriptionRelState));
-			memcpy(rstate, lfirst(lc), sizeof(SubscriptionRelState));
-			table_states = lappend(table_states, rstate);
-		}
-		MemoryContextSwitchTo(oldctx);
-
-		table_states_valid = true;
-	}
+	FetchTableStates(&started_tx);
 
 	/*
 	 * Prepare a hash table for tracking last start times of workers, to avoid
 	 * immediate restarts.  We don't need it if there are no tables that need
 	 * syncing.
 	 */
-	if (table_states && !last_start_times)
+	if (table_states_not_ready && !last_start_times)
 	{
 		HASHCTL		ctl;
 
@@ -416,7 +396,7 @@ process_syncing_tables_for_apply(XLogRecPtr current_lsn)
 	 * Clean up the hash table when we're done with all tables (just to
 	 * release the bit of memory).
 	 */
-	else if (!table_states && last_start_times)
+	else if (!table_states_not_ready && last_start_times)
 	{
 		hash_destroy(last_start_times);
 		last_start_times = NULL;
@@ -425,7 +405,7 @@ process_syncing_tables_for_apply(XLogRecPtr current_lsn)
 	/*
 	 * Process all tables that are being synchronized.
 	 */
-	foreach(lc, table_states)
+	foreach(lc, table_states_not_ready)
 	{
 		SubscriptionRelState *rstate = (SubscriptionRelState *) lfirst(lc);
 
@@ -1052,7 +1032,7 @@ LogicalRepSyncTableStart(XLogRecPtr *origin_startpos)
 	 * for the catchup phase after COPY is done, so tell it to use the
 	 * snapshot to make the final data consistent.
 	 */
-	walrcv_create_slot(wrconn, slotname, false /* permanent */ ,
+	walrcv_create_slot(wrconn, slotname, false /* permanent */ , false /* two_phase */ ,
 					   CRS_USE_SNAPSHOT, origin_startpos);
 
 	/*
@@ -1136,4 +1116,153 @@ copy_table_done:
 	 */
 	wait_for_worker_state_change(SUBREL_STATE_CATCHUP);
 	return slotname;
+}
+
+/*
+ * Common code to fetch the up-to-date sync state info into the static lists.
+ */
+static void
+FetchTableStates(bool *started_tx)
+{
+	*started_tx = false;
+
+	if (!table_states_valid)
+	{
+		MemoryContext oldctx;
+		List	   *rstates;
+		ListCell   *lc;
+		SubscriptionRelState *rstate;
+
+		elog(LOG, "!!> FetchTableStates: Re-fetching the state list caches");
+
+		/* Clean the old lists. */
+		list_free_deep(table_states_all);
+		table_states_all = NIL;
+		list_free_deep(table_states_not_ready);
+		table_states_not_ready = NIL;
+
+		StartTransactionCommand();
+		*started_tx = true;
+
+		/* Fetch all tables. */
+		rstates = GetSubscriptionRelations(MySubscription->oid);
+
+		/* Allocate the tracking info in a permanent memory context. */
+		oldctx = MemoryContextSwitchTo(CacheMemoryContext);
+		foreach(lc, rstates)
+		{
+			SubscriptionRelState *cur_rstate = (SubscriptionRelState *) lfirst(lc);
+
+			/* List of all states */
+			rstate = palloc(sizeof(SubscriptionRelState));
+			memcpy(rstate, cur_rstate, sizeof(SubscriptionRelState));
+			table_states_all = lappend(table_states_all, rstate);
+			elog(LOG, "!!> FetchTableStates: table_states_all - added Table relid %u with state '%c'", rstate->relid, rstate->state);
+
+			/* List of only not-ready states */
+			if (cur_rstate->state != SUBREL_STATE_READY)
+			{
+				rstate = palloc(sizeof(SubscriptionRelState));
+				memcpy(rstate, cur_rstate, sizeof(SubscriptionRelState));
+				table_states_not_ready = lappend(table_states_not_ready, rstate);
+				elog(LOG, "!!> FetchTableStates: table_states_not_ready - added Table relid %u with state '%c'", rstate->relid, rstate->state);
+			}
+		}
+		MemoryContextSwitchTo(oldctx);
+
+		table_states_valid = true;
+	}
+	else
+	{
+		elog(LOG, "!!> FetchTableStates: Already up-to-date");
+	}
+}
+
+/*
+ * Are there any tablesyncs which have still not yet reached SYNCDONE/READY state?
+ */
+bool
+AnyTablesyncInProgress(void)
+{
+	bool		found_busy = false;
+	bool		started_tx = false;
+	int			count = 0;
+	ListCell   *lc;
+
+	elog(LOG, "!!> AnyTablesyncInProgress?");
+
+	/* We need up-to-date sync state info for subscription tables here. */
+	FetchTableStates(&started_tx);
+
+	/*
+	 * Process all not-READY tables to see if any are also not-SYNCDONE
+	 */
+	foreach(lc, table_states_not_ready)
+	{
+		SubscriptionRelState *rstate = (SubscriptionRelState *) lfirst(lc);
+
+		count++;
+		elog(LOG,
+			 "!!> AnyTablesyncInProgress?: #%d. Table relid %u has state '%c'",
+			 count,
+			 rstate->relid,
+			 rstate->state);
+
+		/*
+		 * When the process_syncing_tables_for_apply changes the state from
+		 * SYNCDONE to READY, that change is actually written directly into
+		 * the list element of table_states_not_ready.
+		 *
+		 * So the "table_states_not_ready" list might end up having a READY
+		 * state in it even though there was none when it was initially
+		 * created. This is reason why we need to check for READY below.
+		 */
+		if (rstate->state != SUBREL_STATE_SYNCDONE &&
+			rstate->state != SUBREL_STATE_READY)
+		{
+			elog(LOG, "!!> AnyTablesyncInProgress?: Table relid %u is busy!", rstate->relid);
+			found_busy = true;
+			break;
+		}
+	}
+
+	if (started_tx)
+	{
+		CommitTransactionCommand();
+		pgstat_report_stat(false);
+	}
+
+	elog(LOG,
+		 "!!> AnyTablesyncInProgress?: Scanned %d tables, and found busy = %s",
+		 count,
+		 found_busy ? "true" : "false");
+
+	return found_busy;
+}
+
+/*
+ * What is the biggest LSN from the all the known tablesyncs?
+ */
+XLogRecPtr
+BiggestTablesyncLSN()
+{
+	XLogRecPtr	biggest_lsn = InvalidXLogRecPtr;
+	ListCell   *lc;
+	int			count = 0;
+
+	foreach(lc, table_states_all)
+	{
+		SubscriptionRelState *rstate = (SubscriptionRelState *) lfirst(lc);
+
+		count++;
+		if (rstate->lsn > biggest_lsn)
+			biggest_lsn = rstate->lsn;
+	}
+
+	elog(LOG,
+		 "!!> BiggestTablesyncLSN: Scanned %d tables. Biggest lsn found = %X/%X",
+		 count,
+		 LSN_FORMAT_ARGS(biggest_lsn));
+
+	return biggest_lsn;
 }

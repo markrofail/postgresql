@@ -1,4 +1,5 @@
 /*-------------------------------------------------------------------------
+ * If needed, this is the common function to do that file redirection.
  * worker.c
  *	   PostgreSQL logical replication worker (apply)
  *
@@ -49,6 +50,43 @@
  * a new way to pass filenames to BufFile APIs so that we are allowed to open
  * the file we desired across multiple stream-open calls for the same
  * transaction.
+ *
+ *
+ * PREPARED SPOOLFILE (PSF) LOGIC
+ * ------------------------------
+ * It can happen that the apply worker is processing a
+ * LOGICAL_REP_MSG_BEGIN_PREPARE message at the same time as table
+ * synchronization is happening. To avoid any chance of an "empty prepare"
+ * situation arising the apply worker waits for all the tablesyncs to reach at
+ * least SYNCDONE state, but this in turn can lead to another case where the
+ * tablesync lsn has got ahead of the prepare lsn the apply worker is
+ * currently processing. Refer to the comment in the apply_handle_begin_prepare
+ * function for more details.
+ *
+ * When this happens the prepared messages are spooled into a "prepare
+ * spoolfile" (aka psf). The messages written to this file are all the prepared
+ * messages up to and including the LOGICAL_REP_MSG_PREPARE. All this psf
+ * content is then replayed later at commit time (apply_handle_commit_prepared),
+ * where the messages are all dispatched in the usual way.
+ *
+ * The psf files reside in the "pg_logical/twophase" directory and they are
+ * uniquely named. This is necessary because there may be multiple psf files
+ * co-existing, and so the correct psf must be re-discoverable (using subid and
+ * gid).
+ *
+ * Furthermore, to cope with possibility of error between the end of spooling
+ * (in apply_handle_prepare) and the commit (in apply_handle_commit_prepared) a
+ * psf file must be able to survive a PG restart. So we cannot utilizing the
+ * same (temporary file based) BufFile API that the streamed transactions use.
+ * Instead, the psf file handling uses the File API (PathNameOpenFile and
+ * friends). But this means the code now has to take responsibility for psf file
+ * cleanup. An HTAB is used to track if a particular psf file can or cannot be
+ * deleted, and a proc-exit handler is registered to take the appropriate
+ * action. Refer to function prepare_spoolfile_on_proc_exit.
+ *
+ * Upon restart, any uncommitted psf files are still present and so their commit
+ * can proceed as before.
+ *
  *-------------------------------------------------------------------------
  */
 
@@ -59,6 +97,7 @@
 
 #include "access/table.h"
 #include "access/tableam.h"
+#include "access/twophase.h"
 #include "access/xact.h"
 #include "access/xlog_internal.h"
 #include "catalog/catalog.h"
@@ -206,6 +245,59 @@ static void subxact_info_write(Oid subid, TransactionId xid);
 static void subxact_info_read(Oid subid, TransactionId xid);
 static void subxact_info_add(TransactionId xid);
 static inline void cleanup_subxact_info(void);
+
+/*
+ * The following are for the support of a spoolfile for prepared messages.
+ */
+
+/* psf files will be written here. */
+#define PSF_DIR "pg_logical/twophase"
+
+/*
+ * A Prepare spoolfile hash entry. We create this entry in the psf_hash. This is
+ * for maintaining a mapping between the name of the prepared spoolfile, and a
+ * flag indicating if it is OK to delete this psf at proc-exit time or not.
+ *
+ * Each PshHashEntry is created at prepare and removed at commit/rollback.
+ */
+typedef struct PsfHashEntry
+{
+	char		name[MAXPGPATH];	/* Hash key --- must be first */
+	bool		delete_on_exit; /* ok to delete at proc-exit? */
+} PsfHashEntry;
+
+/*
+ * Information about the "current" psf spoolfile.
+ */
+typedef struct PsfFile
+{
+	char		name[MAXPGPATH];	/* psf name - same as the HTAB key. */
+	bool		is_spooling;	/* are we currently spooling to this file? */
+	File		vfd;			/* -1 when the file is closed. */
+	off_t		cur_offset;		/* offset for the next write or read. Reset to
+								 * 0 when file is opened. */
+} PsfFile;
+
+/*
+ * Hash table for storing the Prepared spoolfile info along with shared fileset.
+ */
+static HTAB *psf_hash = NULL;
+
+/*
+ * Information about the 'current' open spoolfile is only valid when spooling.
+ * This is flagged as 'is_spooling' only between begin_prepare and prepare.
+ */
+static PsfFile psf_cur = {.is_spooling = false,.vfd = -1,.cur_offset = 0};
+
+static void prepare_spoolfile_create(char *path);
+static void prepare_spoolfile_write(char action, StringInfo s);
+static void prepare_spoolfile_close(void);
+static void prepare_spoolfile_delete(char *path);
+static bool prepare_spoolfile_exists(char *path);
+static void prepare_spoolfile_name(char *path, int szpath, Oid subid, char *gid);
+static int	prepare_spoolfile_replay_messages(char *path, XLogRecPtr final_lsn);
+static bool prepare_spoolfile_handler(LogicalRepMsgType action, StringInfo s);
+static void prepare_spoolfile_on_proc_exit(int status, Datum arg);
 
 /*
  * Serialize and deserialize changes for a toplevel transaction.
@@ -720,6 +812,391 @@ apply_handle_commit(StringInfo s)
 }
 
 /*
+ * Handle BEGIN PREPARE message.
+ */
+static void
+apply_handle_begin_prepare(StringInfo s)
+{
+	LogicalRepBeginPrepareData begin_data;
+
+	/* Tablesync should never receive prepare. */
+	Assert(!am_tablesync_worker());
+
+	logicalrep_read_begin_prepare(s, &begin_data);
+
+	/* The gid must not already be prepared. */
+	if (LookupGXact(begin_data.gid, begin_data.end_lsn, begin_data.committime))
+		ereport(ERROR,
+				(errcode(ERRCODE_DUPLICATE_OBJECT),
+				 errmsg("transaction identifier \"%s\" is already in use",
+						begin_data.gid)));
+
+#if 0
+	if (!am_tablesync_worker())
+	{
+		/* This is hacky test code for ability to discover/delete all psf files. */
+
+		char path[MAXPGPATH];
+
+		/* Make some test files */
+		prepare_spoolfile_name(path, sizeof(path), 123, "test1"); prepare_spoolfile_create(path); prepare_spoolfile_close();
+		prepare_spoolfile_name(path, sizeof(path), 123, "test2"); prepare_spoolfile_create(path); prepare_spoolfile_close();
+		prepare_spoolfile_name(path, sizeof(path), 123, "test3"); prepare_spoolfile_create(path); prepare_spoolfile_close();
+		prepare_spoolfile_name(path, sizeof(path), 999, "testA"); prepare_spoolfile_create(path); prepare_spoolfile_close();
+		prepare_spoolfile_name(path, sizeof(path), 999, "testB"); prepare_spoolfile_create(path); prepare_spoolfile_close();
+		prepare_spoolfile_name(path, sizeof(path), 999, "testC"); prepare_spoolfile_create(path); prepare_spoolfile_close();
+
+		// Lists
+		prepare_spoolfiles(InvalidOid, false);	// Everything!
+		prepare_spoolfiles(123, false); 		// Only those with subscription 123
+		prepare_spoolfiles(999, false); 		// Only those with subscription 999
+		prepare_spoolfiles(666, false); 		// This subscription does not exist
+
+		// Deletes
+		prepare_spoolfiles(123, true); 			// Delete all with subscription 123
+		prepare_spoolfiles(InvalidOid, false); 	// List everything again
+		//prepare_spoolfiles(InvalidOid, true); 	// Delete all
+		//prepare_spoolfiles(InvalidOid, false); 	// List everything again
+		prepare_spoolfiles(666, true); 			// Delete non-existing
+		prepare_spoolfiles(999, true); 			// Delete all with subscription 999
+		prepare_spoolfiles(InvalidOid, false); 	// List everything again
+	}
+#endif
+
+	/*
+	 * By sad timing of apply/tablesync workers it is possible to have a
+	 * “consistent snapshot” that spans prepare/commit in such a way that
+	 * the tablesync did not do the prepare (because snapshot not consistent)
+	 * and the apply worker does the begin prepare (‘b’) but it skips all
+	 * the prepared operations [e.g. inserts] while the tablesync was still
+	 * busy (see the condition of should_apply_changes_for_rel).
+	 *
+	 * This can lead to an "empty prepare", because later when the apply
+	 * worker does the commit prepare (‘K’), there is nothing in it (the
+	 * inserts were skipped earlier).
+	 *
+	 * We avoid this using the 2 part logic: (1) Wait for all tablesync
+	 * workers to reach SYNCDONE/READY state; (2) If the begin_prepare lsn is
+	 * now behind any tablesync lsn then spool the prepared messages to a file
+	 * to be replayed later at commit_prepared time.
+	 *
+	 * -----
+	 *
+	 * XXX - The 2PC protocol needs the publisher to be aware when the PREPARE
+	 * has been successfully acted on. But because of this "empty prepare"
+	 * case now the prepared messages may be spooled to a file and, when that
+	 * happens the PREPARE would not happen at the usual time, but would be
+	 * deferred until COMMIT PREPARED time. This quirk could only happen
+	 * immediately after the initial table synchronization phase; once all
+	 * tables have acheived READY state the 2PC protocol will behave normally.
+	 *
+	 * A future release may be able to detect when all tables are READY and
+	 * set a flag to indicate this subscription/slot is ready for two_phase
+	 * decoding. Then at the publisher-side, we could enable wait-for-prepares
+	 * only when all the slots of WALSender have that flag set.
+	 */
+	if (!am_tablesync_worker())
+	{
+		/*
+		 * Part 1 of 2:
+		 *
+		 * Make sure every tablesync has reached at least SYNCDONE state
+		 * before letting the apply worker proceed.
+		 */
+		elog(LOG,
+			 "!!> apply_handle_begin_prepare, end_lsn = %X/%X, final_lsn = %X/%X, lstate_lsn = %X/%X",
+			 LSN_FORMAT_ARGS(begin_data.end_lsn),
+			 LSN_FORMAT_ARGS(begin_data.final_lsn),
+			 LSN_FORMAT_ARGS(MyLogicalRepWorker->relstate_lsn));
+
+		while (AnyTablesyncInProgress())
+		{
+			elog(LOG, "!!> apply_handle_begin_prepare - waiting for all sync workers to be DONE/READY");
+
+			CHECK_FOR_INTERRUPTS();
+
+			process_syncing_tables(begin_data.final_lsn);
+
+			/* This latch is to prevent 100% CPU looping. */
+			(void) WaitLatch(MyLatch,
+							 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+							 1000L, WAIT_EVENT_LOGICAL_SYNC_STATE_CHANGE);
+			ResetLatch(MyLatch);
+		}
+
+		/*
+		 * Part 2 of 2:
+		 *
+		 * If (when getting to SYNCDONE/READY state) some tablesync went
+		 * beyond this begin_prepare LSN then set all messages (until
+		 * prepared) will be saved to a spoolfile for replay later at
+		 * commit_prepared time.
+		 */
+		if (begin_data.final_lsn < BiggestTablesyncLSN()
+#if 0
+			|| true				/* XXX - Add this line to force psf (for
+								 * easier debugging) */
+#endif
+			)
+		{
+			char		psfpath[MAXPGPATH];
+
+			/*
+			 * Create the spoolfile.
+			 */
+			prepare_spoolfile_name(psfpath, sizeof(psfpath),
+								   MyLogicalRepWorker->subid, begin_data.gid);
+			prepare_spoolfile_create(psfpath);
+
+			/*
+			 * From now, until the handle_prepare we are spooling to the
+			 * current psf.
+			 */
+			psf_cur.is_spooling = true;
+
+			pgstat_report_activity(STATE_RUNNING, NULL);
+			return;
+		}
+	}
+
+	remote_final_lsn = begin_data.final_lsn;
+
+	in_remote_transaction = true;
+
+	pgstat_report_activity(STATE_RUNNING, NULL);
+}
+
+/*
+ * Handle PREPARE message.
+ */
+static void
+apply_handle_prepare(StringInfo s)
+{
+	LogicalRepPreparedTxnData prepare_data;
+
+	/*
+	 * If we were using a psf spoolfile, then write the PREPARE as the final
+	 * message. This prepare information will be used at commit_prepared time.
+	 */
+	if (psf_cur.is_spooling)
+	{
+		PsfHashEntry *hentry;
+
+		elog(LOG, "!!> apply_handle_prepare: SPOOLING");
+
+		Assert(!in_remote_transaction);
+
+		/* Write the PREPARE info to the psf file. */
+		prepare_spoolfile_handler(LOGICAL_REP_MSG_PREPARE, s);
+
+		/*
+		 * Flush the spoolfile, so changes can survive a restart.
+		 *
+		 * If the publisher resends the same data again after a restart (e.g.
+		 * if subscriber origin has not moved past this prepare), then the
+		 * same named psf file will be overwritten with the same data. See
+		 * prepare_spoolfile_create.
+		 */
+		FileSync(psf_cur.vfd, WAIT_EVENT_DATA_FILE_SYNC);
+
+		/* We are finished spooling to the current psf. */
+		psf_cur.is_spooling = false;
+
+		/*
+		 * The commit_prepare will need the spoolfile, so unregister it for
+		 * removal on proc-exit just in case there is an unexpected restart
+		 * between now and when commit_prepared happens.
+		 */
+		elog(LOG,
+			"!!> apply_handle_prepare: Make sure the spoolfile is not removed on proc-exit");
+		hentry = (PsfHashEntry *) hash_search(psf_hash, psf_cur.name,
+											  HASH_FIND, NULL);
+		Assert(hentry);
+		hentry->delete_on_exit = false;
+
+		/*
+		 * The psf_cur.vfd is meaningful only between begin_prepare and
+		 * prepared. So close it now. Any messages written to the psf will be
+		 * applied later during handle_commit_prepared.
+		 */
+		prepare_spoolfile_close();
+
+		in_remote_transaction = false;
+		return;
+	}
+
+	logicalrep_read_prepare(s, &prepare_data);
+
+	/*
+	 * Normally, prepare_lsn == remote_final_lsn, but if this prepare message
+	 * was dispatched via the psf spoolfile replay then the remote_final_lsn
+	 * is set to commit lsn instead. Hence the <= instead of == check below.
+	 */
+	Assert(prepare_data.prepare_lsn <= remote_final_lsn);
+
+	if (IsTransactionState())
+	{
+		/*
+		 * BeginTransactionBlock is necessary to balance the
+		 * EndTransactionBlock called within the PrepareTransactionBlock
+		 * below.
+		 */
+		BeginTransactionBlock();
+		CommitTransactionCommand();
+
+		/*
+		 * Update origin state so we can restart streaming from correct
+		 * position in case of crash.
+		 */
+		replorigin_session_origin_lsn = prepare_data.end_lsn;
+		replorigin_session_origin_timestamp = prepare_data.preparetime;
+
+		PrepareTransactionBlock(prepare_data.gid);
+		CommitTransactionCommand();
+		pgstat_report_stat(false);
+
+		store_flush_position(prepare_data.end_lsn);
+	}
+	else
+	{
+		/* Process any invalidation messages that might have accumulated. */
+		AcceptInvalidationMessages();
+		maybe_reread_subscription();
+	}
+
+	in_remote_transaction = false;
+
+	/* Process any tables that are being synchronized in parallel. */
+	process_syncing_tables(prepare_data.end_lsn);
+
+	pgstat_report_activity(STATE_IDLE, NULL);
+}
+
+/*
+ * Handle a COMMIT PREPARED of a previously PREPARED transaction.
+ */
+static void
+apply_handle_commit_prepared(StringInfo s)
+{
+	LogicalRepPreparedTxnData prepare_data;
+	char		psfpath[MAXPGPATH];
+
+	logicalrep_read_commit_prepared(s, &prepare_data);
+
+	/*
+	 * If this prepare's messages were being spooled to a file, then replay
+	 * them all now.
+	 */
+	prepare_spoolfile_name(psfpath, sizeof(psfpath),
+						   MyLogicalRepWorker->subid, prepare_data.gid);
+	if (prepare_spoolfile_exists(psfpath))
+	{
+		int			nchanges;
+
+		elog(LOG, "!!> apply_handle_commit_prepared: replaying the spooled messages");
+
+		/*
+		 * Replay/dispatch the spooled messages.
+		 */
+
+		ensure_transaction();
+
+		nchanges = prepare_spoolfile_replay_messages(psfpath, prepare_data.prepare_lsn);
+		elog(LOG,
+			 "!!> apply_handle_commit_prepared: replayed %d (all) changes.",
+			 nchanges);
+
+		/* After replaying the psf it is no longer needed. Just delete it. */
+		prepare_spoolfile_delete(psfpath);
+	}
+
+	/* there is no transaction when COMMIT PREPARED is called */
+	ensure_transaction();
+
+	/*
+	 * Update origin state so we can restart streaming from correct position
+	 * in case of crash.
+	 */
+	replorigin_session_origin_lsn = prepare_data.end_lsn;
+	replorigin_session_origin_timestamp = prepare_data.preparetime;
+
+	FinishPreparedTransaction(prepare_data.gid, true);
+	CommitTransactionCommand();
+	pgstat_report_stat(false);
+
+	store_flush_position(prepare_data.end_lsn);
+	in_remote_transaction = false;
+
+	/* Process any tables that are being synchronized in parallel. */
+	process_syncing_tables(prepare_data.end_lsn);
+
+	pgstat_report_activity(STATE_IDLE, NULL);
+}
+
+/*
+ * Handle a ROLLBACK PREPARED of a previously PREPARED TRANSACTION.
+ */
+static void
+apply_handle_rollback_prepared(StringInfo s)
+{
+	LogicalRepRollbackPreparedTxnData rollback_data;
+	bool		using_psf;
+	char		psfpath[MAXPGPATH];
+
+	logicalrep_read_rollback_prepared(s, &rollback_data);
+
+	/*
+	 * If this prepare's messages were being spooled to a file, then cleanup
+	 * the file.
+	 */
+	prepare_spoolfile_name(psfpath, sizeof(psfpath),
+						   MyLogicalRepWorker->subid, rollback_data.gid);
+	using_psf = prepare_spoolfile_exists(psfpath);
+	if (using_psf)
+	{
+		/* We are finished with this spoolfile. Delete it. */
+		prepare_spoolfile_delete(psfpath);
+	}
+
+	/*
+	 * It is possible that we haven't received prepare because it occurred
+	 * before walsender reached a consistent point in which case we need to
+	 * skip rollback prepared.
+	 *
+	 * And we also skip the FinishPreparedTransaction if we're using the
+	 * Prepare Spoolfile (using_psf) because in that case there is no matching
+	 * PrepareTransactionBlock done yet.
+	 */
+	elog(LOG, "!!> apply_handle_rollback_prepared: using_psf = %d", using_psf);
+	if (!using_psf &&
+		LookupGXact(rollback_data.gid, rollback_data.prepare_end_lsn,
+					rollback_data.preparetime))
+	{
+		/*
+		 * Update origin state so we can restart streaming from correct
+		 * position in case of crash.
+		 */
+		replorigin_session_origin_lsn = rollback_data.rollback_end_lsn;
+		replorigin_session_origin_timestamp = rollback_data.rollbacktime;
+
+		/* there is no transaction when ABORT/ROLLBACK PREPARED is called */
+		ensure_transaction();
+		FinishPreparedTransaction(rollback_data.gid, false);
+		CommitTransactionCommand();
+	}
+
+	pgstat_report_stat(false);
+
+	store_flush_position(rollback_data.rollback_end_lsn);
+	in_remote_transaction = false;
+
+	/* Process any tables that are being synchronized in parallel. */
+	process_syncing_tables(rollback_data.rollback_end_lsn);
+
+	pgstat_report_activity(STATE_IDLE, NULL);
+}
+
+/*
  * Handle ORIGIN message.
  *
  * TODO, support tracking of multiple origins
@@ -732,6 +1209,7 @@ apply_handle_origin(StringInfo s)
 	 * remote transaction and before any actual writes.
 	 */
 	if (!in_streamed_transaction &&
+		!psf_cur.is_spooling &&
 		(!in_remote_transaction ||
 		 (IsTransactionState() && !am_tablesync_worker())))
 		ereport(ERROR,
@@ -1092,6 +1570,9 @@ apply_handle_relation(StringInfo s)
 {
 	LogicalRepRelation *rel;
 
+	if (prepare_spoolfile_handler(LOGICAL_REP_MSG_RELATION, s))
+		return;
+
 	if (handle_streamed_transaction(LOGICAL_REP_MSG_RELATION, s))
 		return;
 
@@ -1109,6 +1590,9 @@ static void
 apply_handle_type(StringInfo s)
 {
 	LogicalRepTyp typ;
+
+	if (prepare_spoolfile_handler(LOGICAL_REP_MSG_TYPE, s))
+		return;
 
 	if (handle_streamed_transaction(LOGICAL_REP_MSG_TYPE, s))
 		return;
@@ -1149,6 +1633,9 @@ apply_handle_insert(StringInfo s)
 	EState	   *estate;
 	TupleTableSlot *remoteslot;
 	MemoryContext oldctx;
+
+	if (prepare_spoolfile_handler(LOGICAL_REP_MSG_INSERT, s))
+		return;
 
 	if (handle_streamed_transaction(LOGICAL_REP_MSG_INSERT, s))
 		return;
@@ -1270,6 +1757,9 @@ apply_handle_update(StringInfo s)
 	TupleTableSlot *remoteslot;
 	RangeTblEntry *target_rte;
 	MemoryContext oldctx;
+
+	if (prepare_spoolfile_handler(LOGICAL_REP_MSG_UPDATE, s))
+		return;
 
 	if (handle_streamed_transaction(LOGICAL_REP_MSG_UPDATE, s))
 		return;
@@ -1428,6 +1918,9 @@ apply_handle_delete(StringInfo s)
 	EState	   *estate;
 	TupleTableSlot *remoteslot;
 	MemoryContext oldctx;
+
+	if (prepare_spoolfile_handler(LOGICAL_REP_MSG_DELETE, s))
+		return;
 
 	if (handle_streamed_transaction(LOGICAL_REP_MSG_DELETE, s))
 		return;
@@ -1798,6 +2291,9 @@ apply_handle_truncate(StringInfo s)
 	List	   *relids_logged = NIL;
 	ListCell   *lc;
 
+	if (prepare_spoolfile_handler(LOGICAL_REP_MSG_TRUNCATE, s))
+		return;
+
 	if (handle_streamed_transaction(LOGICAL_REP_MSG_TRUNCATE, s))
 		return;
 
@@ -1954,6 +2450,32 @@ apply_dispatch(StringInfo s)
 		case LOGICAL_REP_MSG_STREAM_COMMIT:
 			apply_handle_stream_commit(s);
 			return;
+
+		case LOGICAL_REP_MSG_BEGIN_PREPARE:
+			elog(LOG, "!!> ------ apply_handle_begin_prepare ------");
+			apply_handle_begin_prepare(s);
+			return;
+
+		case LOGICAL_REP_MSG_PREPARE:
+			elog(LOG, "!!> ------ apply_handle_prepare ------");
+			apply_handle_prepare(s);
+			return;
+
+		case LOGICAL_REP_MSG_COMMIT_PREPARED:
+			elog(LOG, "!!> ------ apply_handle_commit_prepared ------");
+			apply_handle_commit_prepared(s);
+			return;
+
+		case LOGICAL_REP_MSG_ROLLBACK_PREPARED:
+			elog(LOG, "!!> ------ apply_handle_rollback_prepared ------");
+			apply_handle_rollback_prepared(s);
+			return;
+
+		case LOGICAL_REP_MSG_STREAM_PREPARE:
+			/* Streaming with two-phase is not supported */
+			ereport(ERROR,
+					(errcode(ERRCODE_PROTOCOL_VIOLATION),
+					 errmsg("invalid logical replication message type \"%c\"", action)));
 	}
 
 	ereport(ERROR,
@@ -2012,7 +2534,9 @@ get_flush_position(XLogRecPtr *write, XLogRecPtr *flush,
 		}
 	}
 
-	*have_pending_txes = !dlist_is_empty(&lsn_mapping);
+	/* consider entries in prepare spool file as not flushed */
+	*have_pending_txes = (!dlist_is_empty(&lsn_mapping) ||
+						  (psf_hash && hash_get_num_entries(psf_hash)));
 }
 
 /*
@@ -2059,6 +2583,23 @@ LogicalRepApplyLoop(XLogRecPtr last_received)
 	TimestampTz last_recv_timestamp = GetCurrentTimestamp();
 	bool		ping_sent = false;
 	TimeLineID	tli;
+
+	/*
+	 * Initialize the psf_hash table if we haven't yet. This will be used for
+	 * the entire duration of the apply worker so create it in permanent
+	 * context.
+	 */
+	if (psf_hash == NULL)
+	{
+		HASHCTL		hash_ctl;
+		PsfHashEntry *hentry;
+
+		hash_ctl.keysize = sizeof(hentry->name);
+		hash_ctl.entrysize = sizeof(PsfHashEntry);
+		hash_ctl.hcxt = ApplyContext;
+		psf_hash = hash_create("PrepareSpoolfileHash", 1024, &hash_ctl,
+							   HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
+	}
 
 	/*
 	 * Init the ApplyMessageContext which we clean up after each replication
@@ -2180,7 +2721,7 @@ LogicalRepApplyLoop(XLogRecPtr last_received)
 		/* confirm all writes so far */
 		send_feedback(last_received, false, false);
 
-		if (!in_remote_transaction && !in_streamed_transaction)
+		if (!in_remote_transaction && !in_streamed_transaction && !psf_cur.is_spooling)
 		{
 			/*
 			 * If we didn't get any transactions for a while there might be
@@ -2439,6 +2980,7 @@ maybe_reread_subscription(void)
 		strcmp(newsub->slotname, MySubscription->slotname) != 0 ||
 		newsub->binary != MySubscription->binary ||
 		newsub->stream != MySubscription->stream ||
+		newsub->twophase != MySubscription->twophase ||
 		!equal(newsub->publications, MySubscription->publications))
 	{
 		ereport(LOG,
@@ -2927,6 +3469,10 @@ ApplyWorkerMain(Datum main_arg)
 	/* Attach to slot */
 	logicalrep_worker_attach(worker_slot);
 
+	/* Arrange to delete any unwanted psf file(s) at proc-exit */
+	if (!am_tablesync_worker())
+		on_proc_exit(prepare_spoolfile_on_proc_exit, 0);
+
 	/* Setup signal handling */
 	pqsignal(SIGHUP, SignalHandlerForConfigReload);
 	pqsignal(SIGTERM, die);
@@ -3085,6 +3631,7 @@ ApplyWorkerMain(Datum main_arg)
 	options.proto.logical.publication_names = MySubscription->publications;
 	options.proto.logical.binary = MySubscription->binary;
 	options.proto.logical.streaming = MySubscription->stream;
+	options.proto.logical.twophase = MySubscription->twophase;
 
 	/* Start normal logical streaming replication. */
 	walrcv_startstreaming(wrconn, &options);
@@ -3102,4 +3649,388 @@ bool
 IsLogicalWorker(void)
 {
 	return MyLogicalRepWorker != NULL;
+}
+
+/*
+ * Handle the PREPARE spoolfile (if any)
+ *
+ * It can be necessary to redirect the PREPARE messages to a spoolfile (see
+ * apply_handle_begin_prepare) and then replay them back at the COMMIT PREPARED
+ * time.
+ *
+ * Returns true if the message was redirected to the spoolfile, false
+ * otherwise (regular mode).
+ */
+static bool
+prepare_spoolfile_handler(LogicalRepMsgType action, StringInfo s)
+{
+	elog(LOG,
+		 "!!> prepare_spoolfile_handler for action '%c'. %s write to spool file",
+		 action,
+		 psf_cur.is_spooling ? "Do" : "Don't");
+
+	if (!psf_cur.is_spooling)
+		return false;
+
+	Assert(!in_streamed_transaction);
+
+	/* write the change to the current file */
+	prepare_spoolfile_write(action, s);
+
+	return true;
+}
+
+/*
+ * Create the spoolfile used to serialize the prepare messages.
+ */
+static void
+prepare_spoolfile_create(char *path)
+{
+	PsfHashEntry *hentry;
+
+	elog(LOG, "!!> creating file \"%s\" for prepare changes", path);
+
+	Assert(!psf_cur.is_spooling);
+
+	/* Make sure the PSF_DIR subdirectory exists. */
+	if (MakePGDirectory(PSF_DIR) < 0 && errno != EEXIST)
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("could not create directory \"%s\": %m",
+						PSF_DIR)));
+
+	/*
+	 * Open the file and seek to the beginning because we always want to
+	 * create/overwrite this file.
+	 */
+	psf_cur.vfd = PathNameOpenFile(path, O_RDWR | O_CREAT | O_TRUNC | PG_BINARY);
+	if (psf_cur.vfd < 0)
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("could not open file \"%s\": %m", path)));
+
+	/* Create/Find the spoolfile entry in the psf_hash */
+	hentry = (PsfHashEntry *) hash_search(psf_hash, path,
+										  HASH_ENTER | HASH_FIND, NULL);
+	Assert(hentry);
+	memcpy(psf_cur.name, path, sizeof(psf_cur.name));
+	psf_cur.cur_offset = 0;
+	hentry->delete_on_exit = true;
+
+	/* Sanity checks */
+	Assert(psf_cur.vfd >= 0);
+	Assert(prepare_spoolfile_exists(path));
+}
+
+/*
+ * Close the "current" spoolfile and unset the fd.
+ */
+static void
+prepare_spoolfile_close()
+{
+	elog(LOG, "!!> prepare_spoolfile_close");
+	if (psf_cur.vfd >= 0)
+		FileClose(psf_cur.vfd);
+
+	/* Mark this fd as not valid to use anymore. */
+	psf_cur.is_spooling = false;
+	psf_cur.vfd = -1;
+	psf_cur.cur_offset = 0;
+}
+
+/*
+ * Delete the specified psf spoolfile, and any HTAB associated with it.
+ */
+static void
+prepare_spoolfile_delete(char *path)
+{
+	elog(LOG, "!!> prepare_spoolfile_delete: \"%s\"", path);
+
+	/* The current psf should be closed already, but make sure anyway. */
+	prepare_spoolfile_close();
+
+	/* Delete the file off the disk. */
+	unlink(path);
+
+	/* Remove any entry from the psf_hash, if present */
+	hash_search(psf_hash, path, HASH_REMOVE, NULL);
+}
+
+/*
+ * Serialize a change to the prepare spoolfile for the current toplevel transaction.
+ *
+ * The change is serialized in a simple format, with length (not including
+ * the length), action code (identifying the message type) and message
+ * contents (without the subxact TransactionId value).
+ */
+static void
+prepare_spoolfile_write(char action, StringInfo s)
+{
+	int			len;
+	int			bytes_written;
+
+	Assert(psf_cur.is_spooling);
+
+	elog(LOG, "!!> prepare_spoolfile_write: writing action '%c'", action);
+
+	/* total on-disk size, including the action type character */
+	len = (s->len - s->cursor) + sizeof(char);
+
+	/* first write the size */
+	elog(LOG, "!!> prepare_spoolfile_write: A writing len bytes = %d", len);
+	bytes_written = FileWrite(psf_cur.vfd, (char *) &len, sizeof(len),
+							  psf_cur.cur_offset, WAIT_EVENT_DATA_FILE_WRITE);
+	Assert(bytes_written == sizeof(len));
+	psf_cur.cur_offset += bytes_written;
+
+	/* then the action */
+	elog(LOG, "!!> prepare_spoolfile_write: B writing action = %c, %d bytes", action, (int)sizeof(action));
+	bytes_written = FileWrite(psf_cur.vfd, &action, sizeof(action),
+							  psf_cur.cur_offset, WAIT_EVENT_DATA_FILE_WRITE);
+	Assert(bytes_written == sizeof(action));
+	psf_cur.cur_offset += bytes_written;
+
+	/* and finally the remaining part of the buffer (after the XID) */
+	len = (s->len - s->cursor);
+
+	elog(LOG, "!!> prepare_spoolfile_write: C writing len bytes = %d", len);
+	bytes_written = FileWrite(psf_cur.vfd, &s->data[s->cursor], len,
+							  psf_cur.cur_offset, WAIT_EVENT_DATA_FILE_WRITE);
+	Assert(bytes_written == len);
+	psf_cur.cur_offset += bytes_written;
+}
+
+/*
+ * Is there a prepare spoolfile for the specified path?
+ */
+static bool
+prepare_spoolfile_exists(char *path)
+{
+	File		fd = PathNameOpenFile(path, O_RDONLY | PG_BINARY);
+
+	elog(LOG,
+		 "!!> prepare_spoolfile_exists: Prepared spoolfile \"%s\" was %s",
+		 path,
+		 fd >= 0 ? "found" : "not found");
+
+	if (fd >= 0)
+		FileClose(fd);
+
+	return fd >= 0;
+}
+
+/*
+ * Replay (apply) all the prepared messages that are in the prepare spoolfile.
+ */
+static int
+prepare_spoolfile_replay_messages(char *path, XLogRecPtr final_lsn)
+{
+	StringInfoData s2;
+	int			nchanges = 0;
+	char	   *buffer = NULL;
+	MemoryContext oldctx,
+				oldctx2;
+	PsfFile		psf = {.is_spooling = false,.vfd = -1,.cur_offset = 0};
+
+	elog(LOG,
+		 "!!> prepare_spoolfile_replay_messages: replaying changes from file \"%s\"",
+		 path);
+
+	/*
+	 * Allocate memory required to process all the messages in
+	 * TopTransactionContext to avoid it getting reset after each message is
+	 * processed.
+	 */
+	oldctx = MemoryContextSwitchTo(TopTransactionContext);
+
+	psf.vfd = PathNameOpenFile(path, O_RDONLY | PG_BINARY);
+	if (psf.vfd < 0)
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("could not read from prepared spoolfile \"%s\": %m",
+						path)));
+
+	buffer = palloc(BLCKSZ);
+	initStringInfo(&s2);
+
+	MemoryContextSwitchTo(oldctx);
+
+	/*
+	 * Make sure the handle apply_dispatch methods are aware we're in a remote
+	 * transaction.
+	 */
+	remote_final_lsn = final_lsn;
+	in_remote_transaction = true;
+	pgstat_report_activity(STATE_RUNNING, NULL);
+
+	/*
+	 * Read the entries one by one and pass them through the same logic as in
+	 * apply_dispatch.
+	 */
+	while (true)
+	{
+		int			nbytes;
+		int			len;
+
+		CHECK_FOR_INTERRUPTS();
+
+		/* read length of the on-disk record */
+		nbytes = FileRead(psf.vfd, (char *) &len, sizeof(len),
+						  psf.cur_offset, WAIT_EVENT_DATA_FILE_READ);
+		psf.cur_offset += nbytes;
+		elog(LOG, "!!> prepare_spoolfile_replay_messages: nbytes = %d, len = %d", nbytes, len);
+
+		/* have we reached end of the file? */
+		if (nbytes == 0)
+			break;
+
+		/* do we have a correct length? */
+		if (nbytes != sizeof(len))
+			ereport(ERROR,
+					(errcode_for_file_access(),
+					 errmsg("could not read from prepared spoolfile \"%s\": %m",
+							path)));
+
+		Assert(len > 0);
+
+		/* make sure we have sufficiently large buffer */
+		buffer = repalloc(buffer, len);
+
+		/* and finally read the data into the buffer */
+		elog(LOG, "!!> prepare_spoolfile_replay_messages: read %d bytes into buffer", len);
+		nbytes = FileRead(psf.vfd, buffer, len,
+						  psf.cur_offset, WAIT_EVENT_DATA_FILE_READ);
+		psf.cur_offset += nbytes;
+		if (nbytes != len)
+			ereport(ERROR,
+					(errcode_for_file_access(),
+					 errmsg("could not read from prepared spoolfile \"%s\": %m",
+							path)));
+
+		/* copy the buffer to the stringinfo and call apply_dispatch */
+		resetStringInfo(&s2);
+		appendBinaryStringInfo(&s2, buffer, len);
+
+		/* Ensure we are reading the data into our memory context. */
+		oldctx2 = MemoryContextSwitchTo(ApplyMessageContext);
+
+		elog(LOG, "!!> prepare_spoolfile_replay_messages: Before dispatch");
+		apply_dispatch(&s2);
+		elog(LOG, "!!> prepare_spoolfile_replay_messages: After dispatch");
+
+		MemoryContextReset(ApplyMessageContext);
+
+		MemoryContextSwitchTo(oldctx2);
+
+		nchanges++;
+
+		if (nchanges % 1000 == 0)
+			elog(LOG, "!!> replayed %d changes from file '%s'",
+				 nchanges, path);
+	}
+
+	FileClose(psf.vfd);
+
+	elog(LOG, "!!> replayed %d (all) changes from file \"%s\"",
+		 nchanges, path);
+
+	return nchanges;
+}
+
+/*
+ * Format the filename for the prepare spoolfile.
+ */
+static void
+prepare_spoolfile_name(char *path, int szpath, Oid subid, char *gid)
+{
+	PsfHashEntry *hentry;
+
+	/*
+	 * This name is used as the key in the psf_hash HTAB. Therefore, the name
+	 * and the key must be exactly same lengths and padded with '\0' so
+	 * garbage does not impact the HTAB lookups.
+	 */
+	Assert(sizeof(hentry->name) == MAXPGPATH);
+	Assert(szpath == MAXPGPATH);
+	memset(path, '\0', MAXPGPATH);
+
+	snprintf(path, MAXPGPATH, "%s/psf_%u_%s.changes", PSF_DIR, subid, gid);
+}
+
+/*
+ * proc_exit callback to remove unwanted psf files.
+ */
+static void
+prepare_spoolfile_on_proc_exit(int status, Datum arg)
+{
+	HASH_SEQ_STATUS seq_status;
+	PsfHashEntry *hentry;
+
+	elog(LOG, "!!> prepare_spoolfile_on_proc_exit");
+
+	/* Iterate the HTAB looking for what files can be deleted. */
+	if (psf_hash)
+	{
+		hash_seq_init(&seq_status, psf_hash);
+		while ((hentry = (PsfHashEntry *) hash_seq_search(&seq_status)) != NULL)
+		{
+			char	   *path = hentry->name;
+
+			elog(LOG, "!!> prepare_spoolfile_proc_exit: found '%s'", path);
+			if (hentry->delete_on_exit)
+				prepare_spoolfile_delete(path);
+		}
+	}
+}
+
+/*
+ * Find if there are any psf files belonging to the specified subscription.
+ * InvalidOid subid param means "all files".
+ *
+ * Optionally delete (unlink) all that match the subid.
+ */
+int
+prepare_spoolfiles(Oid subid, bool unlink_flag)
+{
+	DIR		   *dir;
+	struct dirent *dent;
+	int count = 0;
+
+	elog(LOG,
+		 "!!> prepare_spoolfiles: subid = %u, unlink = %d",
+		 subid, unlink_flag);
+
+	dir = AllocateDir(PSF_DIR);
+	while ((dent = ReadDirExtended(dir, PSF_DIR, DEBUG1)) != NULL)
+	{
+		char		path[MAXPGPATH];
+		char		prefix[MAXPGPATH];
+
+		elog(LOG, "!!> d_name = \"%s\"", dent->d_name);
+
+		/* Only process files if they have matching subid prefix. */
+		if (OidIsValid(subid))
+			sprintf(prefix, "psf_%u_", subid);
+		else
+			sprintf(prefix, "psf_"); /* all psf files */
+
+		if (strstr(dent->d_name, prefix) != dent->d_name)
+			continue;
+
+		snprintf(path, MAXPGPATH, PSF_DIR "/%s", dent->d_name);
+		elog(LOG, "!!> match! \"%s\"", path);
+		count++;
+
+		if (unlink_flag)
+		{
+			unlink(path);
+			elog(LOG, "!!> removed: \"%s\"", path);
+		}
+	}
+
+	FreeDir(dir);
+
+	elog(LOG, "!!> returning count = %d", count);
+
+	return count;
 }

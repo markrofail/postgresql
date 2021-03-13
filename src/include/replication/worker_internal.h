@@ -86,6 +86,10 @@ extern void ReplicationOriginNameForTablesync(Oid suboid, Oid relid,
 											  char *originname, int szorgname);
 extern char *LogicalRepSyncTableStart(XLogRecPtr *origin_startpos);
 
+extern bool AnyTablesyncInProgress(void);
+extern XLogRecPtr BiggestTablesyncLSN(void);
+extern int	prepare_spoolfiles(Oid suboid, bool unlink_flag);
+
 void		process_syncing_tables(XLogRecPtr current_lsn);
 void		invalidate_syncing_table_states(Datum arg, int cacheid,
 											uint32 hashvalue);

@@ -1914,7 +1914,7 @@ The commands accepted in replication mode are:
   </varlistentry>
 
   <varlistentry id="protocol-replication-create-slot" xreflabel="CREATE_REPLICATION_SLOT">
-   <term><literal>CREATE_REPLICATION_SLOT</literal> <replaceable class="parameter">slot_name</replaceable> [ <literal>TEMPORARY</literal> ] { <literal>PHYSICAL</literal> [ <literal>RESERVE_WAL</literal> ] | <literal>LOGICAL</literal> <replaceable class="parameter">output_plugin</replaceable> [ <literal>EXPORT_SNAPSHOT</literal> | <literal>NOEXPORT_SNAPSHOT</literal> | <literal>USE_SNAPSHOT</literal> ] }
+   <term><literal>CREATE_REPLICATION_SLOT</literal> <replaceable class="parameter">slot_name</replaceable> [ <literal>TEMPORARY</literal> ] [ <literal>TWO_PHASE</literal> ] { <literal>PHYSICAL</literal> [ <literal>RESERVE_WAL</literal> ] | <literal>LOGICAL</literal> <replaceable class="parameter">output_plugin</replaceable> [ <literal>EXPORT_SNAPSHOT</literal> | <literal>NOEXPORT_SNAPSHOT</literal> | <literal>USE_SNAPSHOT</literal> ] }
      <indexterm><primary>CREATE_REPLICATION_SLOT</primary></indexterm>
     </term>
     <listitem>
@@ -1951,6 +1951,18 @@ The commands accepted in replication mode are:
          Specify that this replication slot is a temporary one. Temporary
          slots are not saved to disk and are automatically dropped on error
          or when the session has finished.
+        </para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term><literal>TWO_PHASE</literal></term>
+       <listitem>
+        <para>
+         Specify that this replication slot supports decode of two-phase transactions.
+         Two-phase commands like PREPARE TRANSACTION, COMMIT PREPARED and ROLLBACK PREPARED
+         are also decoded and transmitted. In two-phase transactions, the transaction is 
+         decoded and transmitted at PREPARE TRANSACTION time. 
         </para>
        </listitem>
       </varlistentry>

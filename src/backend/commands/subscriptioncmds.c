@@ -67,7 +67,8 @@ parse_subscription_options(List *options,
 						   char **synchronous_commit,
 						   bool *refresh,
 						   bool *binary_given, bool *binary,
-						   bool *streaming_given, bool *streaming)
+						   bool *streaming_given, bool *streaming,
+						   bool *twophase_given, bool *twophase)
 {
 	ListCell   *lc;
 	bool		connect_given = false;
@@ -107,6 +108,11 @@ parse_subscription_options(List *options,
 	{
 		*streaming_given = false;
 		*streaming = false;
+	}
+	if (twophase)
+	{
+		*twophase_given = false;
+		*twophase = false;
 	}
 
 	/* Parse options */
@@ -213,6 +219,26 @@ parse_subscription_options(List *options,
 			*streaming_given = true;
 			*streaming = defGetBoolean(defel);
 		}
+		else if (strcmp(defel->defname, "two_phase") == 0)
+		{
+			/*
+			 * Do not allow toggling of two_phase option, this could
+			 * cause missing of transactions and lead to an inconsistent
+			 * replica.
+			 */
+			if (!twophase)
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("cannot alter two_phase option")));
+
+			if (*twophase_given)
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("conflicting or redundant options")));
+
+			*twophase_given = true;
+			*twophase = defGetBoolean(defel);
+		}
 		else
 			ereport(ERROR,
 					(errcode(ERRCODE_SYNTAX_ERROR),
@@ -283,6 +309,24 @@ parse_subscription_options(List *options,
 					 errmsg("subscription with %s must also set %s",
 							"slot_name = NONE", "create_slot = false")));
 	}
+
+	/*
+	 * Do additional checking for the disallowed combination of two_phase and
+	 * streaming. While streaming and two_phase can theoretically be supported,
+	 * the current implementation has some issues that could lead to a
+	 * streaming prepared transaction to be incorrectly missed in the initial
+	 * syncing phase. Hence, disabling this combination till that issue can
+	 * be addressed.
+	 */
+	if (twophase && *twophase_given && *twophase)
+	{
+		if (streaming && *streaming_given && *streaming)
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("%s and %s are mutually exclusive options",
+							"two_phase = true", "streaming = true")));
+	}
+
 }
 
 /*
@@ -358,6 +402,8 @@ CreateSubscription(CreateSubscriptionStmt *stmt, bool isTopLevel)
 	bool		copy_data;
 	bool		streaming;
 	bool		streaming_given;
+	bool		twophase;
+	bool		twophase_given;
 	char	   *synchronous_commit;
 	char	   *conninfo;
 	char	   *slotname;
@@ -382,7 +428,8 @@ CreateSubscription(CreateSubscriptionStmt *stmt, bool isTopLevel)
 							   &synchronous_commit,
 							   NULL,	/* no "refresh" */
 							   &binary_given, &binary,
-							   &streaming_given, &streaming);
+							   &streaming_given, &streaming,
+							   &twophase_given, &twophase);
 
 	/*
 	 * Since creating a replication slot is not transactional, rolling back
@@ -450,6 +497,7 @@ CreateSubscription(CreateSubscriptionStmt *stmt, bool isTopLevel)
 	values[Anum_pg_subscription_subenabled - 1] = BoolGetDatum(enabled);
 	values[Anum_pg_subscription_subbinary - 1] = BoolGetDatum(binary);
 	values[Anum_pg_subscription_substream - 1] = BoolGetDatum(streaming);
+	values[Anum_pg_subscription_subtwophase - 1] = BoolGetDatum(twophase);
 	values[Anum_pg_subscription_subconninfo - 1] =
 		CStringGetTextDatum(conninfo);
 	if (slotname)
@@ -528,7 +576,7 @@ CreateSubscription(CreateSubscriptionStmt *stmt, bool isTopLevel)
 			{
 				Assert(slotname);
 
-				walrcv_create_slot(wrconn, slotname, false,
+				walrcv_create_slot(wrconn, slotname, false, twophase,
 								   CRS_NOEXPORT_SNAPSHOT, NULL);
 				ereport(NOTICE,
 						(errmsg("created replication slot \"%s\" on publisher",
@@ -648,7 +696,7 @@ AlterSubscription_refresh(Subscription *sub, bool copy_data)
 										InvalidXLogRecPtr);
 				ereport(DEBUG1,
 						(errmsg_internal("table \"%s.%s\" added to subscription \"%s\"",
-								rv->schemaname, rv->relname, sub->name)));
+										 rv->schemaname, rv->relname, sub->name)));
 			}
 		}
 
@@ -722,9 +770,9 @@ AlterSubscription_refresh(Subscription *sub, bool copy_data)
 
 				ereport(DEBUG1,
 						(errmsg_internal("table \"%s.%s\" removed from subscription \"%s\"",
-								get_namespace_name(get_rel_namespace(relid)),
-								get_rel_name(relid),
-								sub->name)));
+										 get_namespace_name(get_rel_namespace(relid)),
+										 get_rel_name(relid),
+										 sub->name)));
 			}
 		}
 
@@ -835,7 +883,8 @@ AlterSubscription(AlterSubscriptionStmt *stmt, bool isTopLevel)
 										   &synchronous_commit,
 										   NULL,	/* no "refresh" */
 										   &binary_given, &binary,
-										   &streaming_given, &streaming);
+										   &streaming_given, &streaming,
+										   NULL, NULL	/* no "two_phase" */);
 
 				if (slotname_given)
 				{
@@ -869,6 +918,12 @@ AlterSubscription(AlterSubscriptionStmt *stmt, bool isTopLevel)
 
 				if (streaming_given)
 				{
+					if (sub->twophase && streaming)
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("cannot set %s for two-phase enabled subscription",
+										"streaming = true")));
+
 					values[Anum_pg_subscription_substream - 1] =
 						BoolGetDatum(streaming);
 					replaces[Anum_pg_subscription_substream - 1] = true;
@@ -892,7 +947,8 @@ AlterSubscription(AlterSubscriptionStmt *stmt, bool isTopLevel)
 										   NULL,	/* no "synchronous_commit" */
 										   NULL,	/* no "refresh" */
 										   NULL, NULL,	/* no "binary" */
-										   NULL, NULL); /* no streaming */
+										   NULL, NULL,	/* no "streaming" */
+										   NULL, NULL);	/* no "two_phase" */
 				Assert(enabled_given);
 
 				if (!sub->slotname && enabled)
@@ -937,7 +993,8 @@ AlterSubscription(AlterSubscriptionStmt *stmt, bool isTopLevel)
 										   NULL,	/* no "synchronous_commit" */
 										   &refresh,
 										   NULL, NULL,	/* no "binary" */
-										   NULL, NULL); /* no "streaming" */
+										   NULL, NULL,	/* no "streaming" */
+										   NULL, NULL);	/* no "two_phase" */
 				values[Anum_pg_subscription_subpublications - 1] =
 					publicationListToArray(stmt->publication);
 				replaces[Anum_pg_subscription_subpublications - 1] = true;
@@ -982,7 +1039,8 @@ AlterSubscription(AlterSubscriptionStmt *stmt, bool isTopLevel)
 										   NULL,	/* no "synchronous_commit" */
 										   NULL,	/* no "refresh" */
 										   NULL, NULL,	/* no "binary" */
-										   NULL, NULL); /* no "streaming" */
+										   NULL, NULL,	/* no "streaming" */
+										   NULL, NULL);	/* no "two_phase" */
 
 				PreventInTransactionBlock(isTopLevel, "ALTER SUBSCRIPTION ... REFRESH");
 
@@ -1190,6 +1248,9 @@ DropSubscription(DropSubscriptionStmt *stmt, bool isTopLevel)
 	/* Remove the origin tracking if exists. */
 	snprintf(originname, sizeof(originname), "pg_%u", subid);
 	replorigin_drop_by_name(originname, true, false);
+
+	/* Remove any psf files belonging to this subscription. */
+	prepare_spoolfiles(subid, true);
 
 	/*
 	 * If there is no slot associated with the subscription, we can finish

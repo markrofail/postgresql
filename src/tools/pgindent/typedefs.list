@@ -1343,12 +1343,15 @@ LogicalOutputPluginWriterPrepareWrite
 LogicalOutputPluginWriterUpdateProgress
 LogicalOutputPluginWriterWrite
 LogicalRepBeginData
+LogicalRepBeginPrepareData
 LogicalRepCommitData
 LogicalRepCtxStruct
 LogicalRepPartMapEntry
+LogicalRepPreparedTxnData
 LogicalRepRelId
 LogicalRepRelMapEntry
 LogicalRepRelation
+LogicalRepRollbackPreparedTxnData
 LogicalRepTupleData
 LogicalRepTyp
 LogicalRepWorker
@@ -1958,6 +1961,8 @@ ProtocolVersion
 PrsStorage
 PruneState
 PruneStepResult
+PsfFile
+PsfHashEntry
 PsqlScanCallbacks
 PsqlScanQuoteType
 PsqlScanResult
