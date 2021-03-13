@@ -1446,7 +1446,9 @@ addRangeTableEntry(ParseState *pstate,
 	rte->selectedCols = NULL;
 	rte->insertedCols = NULL;
 	rte->updatedCols = NULL;
+	rte->returningCols = NULL;
 	rte->extraUpdatedCols = NULL;
+	rte->scanCols = NULL;
 
 	/*
 	 * Add completed RTE to pstate's range table list, so that we know its
@@ -1533,7 +1535,9 @@ addRangeTableEntryForRelation(ParseState *pstate,
 	rte->checkAsUser = InvalidOid;	/* not set-uid by default, either */
 	rte->selectedCols = NULL;
 	rte->insertedCols = NULL;
+	rte->returningCols = NULL;
 	rte->updatedCols = NULL;
+	rte->scanCols = NULL;
 	rte->extraUpdatedCols = NULL;
 
 	/*
@@ -1630,8 +1634,10 @@ addRangeTableEntryForSubquery(ParseState *pstate,
 	rte->checkAsUser = InvalidOid;
 	rte->selectedCols = NULL;
 	rte->insertedCols = NULL;
+	rte->returningCols = NULL;
 	rte->updatedCols = NULL;
 	rte->extraUpdatedCols = NULL;
+	rte->scanCols = NULL;
 
 	/*
 	 * Add completed RTE to pstate's range table list, so that we know its
@@ -1936,8 +1942,10 @@ addRangeTableEntryForFunction(ParseState *pstate,
 	rte->checkAsUser = InvalidOid;
 	rte->selectedCols = NULL;
 	rte->insertedCols = NULL;
+	rte->returningCols = NULL;
 	rte->updatedCols = NULL;
 	rte->extraUpdatedCols = NULL;
+	rte->scanCols = NULL;
 
 	/*
 	 * Add completed RTE to pstate's range table list, so that we know its
@@ -2007,8 +2015,10 @@ addRangeTableEntryForTableFunc(ParseState *pstate,
 	rte->checkAsUser = InvalidOid;
 	rte->selectedCols = NULL;
 	rte->insertedCols = NULL;
+	rte->returningCols = NULL;
 	rte->updatedCols = NULL;
 	rte->extraUpdatedCols = NULL;
+	rte->scanCols = NULL;
 
 	/*
 	 * Add completed RTE to pstate's range table list, so that we know its
@@ -2094,8 +2104,10 @@ addRangeTableEntryForValues(ParseState *pstate,
 	rte->checkAsUser = InvalidOid;
 	rte->selectedCols = NULL;
 	rte->insertedCols = NULL;
+	rte->returningCols = NULL;
 	rte->updatedCols = NULL;
 	rte->extraUpdatedCols = NULL;
+	rte->scanCols = NULL;
 
 	/*
 	 * Add completed RTE to pstate's range table list, so that we know its
@@ -2183,8 +2195,10 @@ addRangeTableEntryForJoin(ParseState *pstate,
 	rte->checkAsUser = InvalidOid;
 	rte->selectedCols = NULL;
 	rte->insertedCols = NULL;
+	rte->returningCols = NULL;
 	rte->updatedCols = NULL;
 	rte->extraUpdatedCols = NULL;
+	rte->scanCols = NULL;
 
 	/*
 	 * Add completed RTE to pstate's range table list, so that we know its
@@ -2332,8 +2346,10 @@ addRangeTableEntryForCTE(ParseState *pstate,
 	rte->checkAsUser = InvalidOid;
 	rte->selectedCols = NULL;
 	rte->insertedCols = NULL;
+	rte->returningCols = NULL;
 	rte->updatedCols = NULL;
 	rte->extraUpdatedCols = NULL;
+	rte->scanCols = NULL;
 
 	/*
 	 * Add completed RTE to pstate's range table list, so that we know its
@@ -2457,6 +2473,8 @@ addRangeTableEntryForENR(ParseState *pstate,
 	rte->requiredPerms = 0;
 	rte->checkAsUser = InvalidOid;
 	rte->selectedCols = NULL;
+	rte->returningCols = NULL;
+	rte->scanCols = NULL;
 
 	/*
 	 * Add completed RTE to pstate's range table list, so that we know its
