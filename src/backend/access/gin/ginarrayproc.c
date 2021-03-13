@@ -96,7 +96,6 @@ ginqueryarrayextract(PG_FUNCTION_ARGS)
 		elems = &PG_GETARG_DATUM(0);
 		nulls = &PG_ARGISNULL(0);
 		nelems = 1;
-		elog(WARNING, "elems: %d, nulls: %d, nelems: %d", *elems, *nulls, nelems);
 	}
 	else
 	{
@@ -128,6 +127,7 @@ ginqueryarrayextract(PG_FUNCTION_ARGS)
 			else				/* everything contains the empty set */
 				*searchMode = GIN_SEARCH_MODE_ALL;
 			break;
+		case GinContainsElemStrategy:
 		case GinContainedStrategy:
 			/* empty set is contained in everything */
 			*searchMode = GIN_SEARCH_MODE_INCLUDE_EMPTY;
@@ -137,14 +137,6 @@ ginqueryarrayextract(PG_FUNCTION_ARGS)
 				*searchMode = GIN_SEARCH_MODE_DEFAULT;
 			else
 				*searchMode = GIN_SEARCH_MODE_INCLUDE_EMPTY;
-			break;
-		case GinContainsElemStrategy:
-			/*
-			 * only items that match the queried element
-			 * are considered candidate
-			 */
-
-			*searchMode = GIN_SEARCH_MODE_DEFAULT;
 			break;
 		default:
 			elog(ERROR, "ginqueryarrayextract: unknown strategy number: %d",
