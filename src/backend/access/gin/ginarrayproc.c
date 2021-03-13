@@ -121,13 +121,13 @@ ginqueryarrayextract(PG_FUNCTION_ARGS)
 		case GinOverlapStrategy:
 			*searchMode = GIN_SEARCH_MODE_DEFAULT;
 			break;
+		case GinContainsElemStrategy:
 		case GinContainsStrategy:
 			if (nelems > 0)
 				*searchMode = GIN_SEARCH_MODE_DEFAULT;
 			else				/* everything contains the empty set */
 				*searchMode = GIN_SEARCH_MODE_ALL;
 			break;
-		case GinContainsElemStrategy:
 		case GinContainedStrategy:
 			/* empty set is contained in everything */
 			*searchMode = GIN_SEARCH_MODE_INCLUDE_EMPTY;
