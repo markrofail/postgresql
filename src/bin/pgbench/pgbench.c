@@ -32,6 +32,13 @@
 #endif
 
 #include "postgres_fe.h"
+#include "common/int.h"
+#include "common/logging.h"
+#include "fe_utils/conditional.h"
+#include "getopt_long.h"
+#include "libpq-fe.h"
+#include "portability/instr_time.h"
+#include "port/pg_bitutils.h"
 
 #include <ctype.h>
 #include <float.h>
@@ -1122,6 +1129,180 @@ getHashMurmur2(int64 val, uint64 seed)
 	result ^= result >> MM2_ROT;
 
 	return (int64) result;
+}
+
+/* pseudo-random permutation */
+
+/* 16 so that % 16 can be optimized to & 0x0f */
+#define PRP_PRIMES 16
+/*
+ * 24 bit mega primes from https://primes.utm.edu/lists/small/millions/
+ * the i-th prime, i \in [0, 15], is the first prime above 2^23 + i * 2^19
+ */
+static uint64 primes[PRP_PRIMES] = {
+	UINT64CONST(8388617),
+	UINT64CONST(8912921),
+	UINT64CONST(9437189),
+	UINT64CONST(9961487),
+	UINT64CONST(10485767),
+	UINT64CONST(11010059),
+	UINT64CONST(11534351),
+	UINT64CONST(12058679),
+	UINT64CONST(12582917),
+	UINT64CONST(13107229),
+	UINT64CONST(13631489),
+	UINT64CONST(14155777),
+	UINT64CONST(14680067),
+	UINT64CONST(15204391),
+	UINT64CONST(15728681),
+	UINT64CONST(16252967)
+};
+
+/* how many "encryption" rounds to apply */
+#define PRP_ROUNDS 4
+
+/* return smallest mask holding n  */
+static uint64
+compute_mask(uint64 n)
+{
+	n |= n >> 1;
+	n |= n >> 2;
+	n |= n >> 4;
+	n |= n >> 8;
+	n |= n >> 16;
+	n |= n >> 32;
+	return n;
+}
+
+#if !defined(PG_INT128_TYPE)
+/* length of n binary representation */
+static int
+nbits(uint64 n)
+{
+	/* set lower bits to 1 and count them */
+	return pg_popcount64(compute_mask(n));
+}
+#endif
+
+/*
+ * Compute (x * y) % m, where x and y in [0, 2^64), m in [1, 2^64).
+ */
+static uint64
+modular_multiply(uint64 x, uint64 y, const uint64 m)
+{
+#if defined(PG_INT128_TYPE)
+	return (PG_INT128_TYPE) x * (PG_INT128_TYPE) y % (PG_INT128_TYPE) m;
+#else
+	pg_log_fatal("modular_multiply not implemented on this platform");
+	pg_log_info("128 bits integer arithmetic not available");
+	exit(1);
+#endif
+}
+
+/*
+ * Donald Knuth's linear congruential generator
+ *
+ * Relying on multiplication overflows is part of the design
+ * of this simple pseudo random number generator.
+ */
+#define DK_LCG_MUL UINT64CONST(6364136223846793005)
+#define DK_LCG_INC UINT64CONST(1442695040888963407)
+
+/* do not use all small bits */
+#define LCG_SHIFT 13
+
+/*
+ * PRP: parametric pseudo-random permutation
+ *
+ * Result in [0, size) is a permutation for inputs in the same set.
+ *
+ * Note that this function does not pass statistical tests: eg
+ * permutations of 2, 3, 4 or 5 ints are not strictly equiprobable.
+ * Things worsen for large sizes as there are many more permutations
+ * (size!) than seeds to select them (2^64 < 21!).
+ * However it is inexpensive compared to an actual encryption function,
+ * and the quality is good enough to avoid trivial correlations on
+ * large sizes, which is the expected use case.
+ *
+ * THIS FUNCTION IS NOT CRYPTOGRAPHICALLY SECURE.
+ * DO NOT USE FOR SUCH PURPOSE.
+ */
+static int64
+pseudorandom_perm(const int64 data, const int64 isize, const int64 seed)
+{
+	/* computations are performed on unsigned values */
+	uint64		size = (uint64) isize;
+	uint64		v = (uint64) data % size;
+	uint64		key = (uint64) seed;
+	/* size-1 ensures 2 possibly overlapping halves */
+	uint64		mask = compute_mask(size - 1) >> 1;
+
+	/* nothing to permute */
+	if (isize == 1)
+		return 0;
+
+	Assert(isize >= 2);
+
+	/*-----
+	 * Apply 4 rounds of bijective transformations using key updated
+	 * at each stage:
+	 *
+	 * (1) scramble: partial xors on overlapping power-of-2 subsets
+	 *     for instance with v in 0 .. 14 (i.e. with size == 15):
+	 *     if v is in 0 .. 7 do v = (v ^ k) % 8
+	 *     if v is in 7 .. 14 do v = 14 - ((14-v) ^ k) % 8
+	 *     note that because of the overlap (here 7), v may be changed twice.
+	 *     this transformation if bijective because the condition to apply it
+	 *     is still true after applying it, and xor itself is bijective on a
+	 *     power-of-2 size.
+	 *
+	 * (2) scatter: linear modulo
+	 *     v = (v * p + k) % size
+	 *     this transformation is bijective is p & size are prime, which is
+	 *     ensured in the code by the while loop which discards primes when
+	 *     size is a multiple of it.
+	 *
+	 */
+	for (unsigned int i = 0, p = key % PRP_PRIMES; i < PRP_ROUNDS; i++, p = (p + 1) % PRP_PRIMES)
+	{
+		uint64		t;
+
+		/* first "half" whitening, for v in 0 .. mask */
+		key = key * DK_LCG_MUL + DK_LCG_INC;
+		if (v <= mask)
+			v ^= (key >> LCG_SHIFT) & mask;
+
+		/* second (possibly overlapping) "half" whitening */
+		key = key * DK_LCG_MUL + DK_LCG_INC;
+		t = size - 1 - v;
+		if (t <= mask)
+		{
+			t ^= (key >> LCG_SHIFT) & mask;
+			v = size - 1 - t;
+		}
+
+		/* at most 2 primes are skipped for a given size */
+		while (unlikely(size % primes[p] == 0))
+			p = (p + 1) % PRP_PRIMES;
+
+		/* scatter values with a prime multiplication */
+		key = key * DK_LCG_MUL + DK_LCG_INC;
+
+		/* Performance shortcut for 24 bit primes, ok for size up to ~10E12 */
+		if ((v & UINT64CONST(0xffffffffff)) == v)
+			v = (primes[p] * v + (key >> LCG_SHIFT)) % size;
+		else
+			/*-----
+			 * Note: the add cannot overflow as size is under 63 bits:
+			 * mmv = mm(prime, v, size) < size <= 0x7fffffffffffffff = (1<<63)-1
+			 * ks = key >> LCG_SHIFTS <= 2^51
+			 * => mmv + ks < (1<<64) - 1
+			 */
+			v = (modular_multiply(primes[p], v, size) + (key >> LCG_SHIFT)) % size;
+	}
+
+	/* back to signed */
+	return (int64) v;
 }
 
 /*
@@ -2469,6 +2650,27 @@ evalStandardFunc(CState *st,
 					/* cannot get here */
 					Assert(0);
 
+				return true;
+			}
+
+		case PGBENCH_PRPERM:
+			{
+				int64	val, size, seed;
+
+				Assert(nargs == 3);
+
+				if (!coerceToInt(&vargs[0], &val) ||
+					!coerceToInt(&vargs[1], &size) ||
+					!coerceToInt(&vargs[2], &seed))
+					return false;
+
+				if (size < 1)
+				{
+					fprintf(stderr, "pr_perm size parameter must be >= 1\n");
+					return false;
+				}
+
+				setIntValue(retval, pseudorandom_perm(val, size, seed));
 				return true;
 			}
 
