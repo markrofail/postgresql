@@ -11,60 +11,60 @@ env:
 # TODO: backtrace on crash
 # TODO: add more build options
 
-task:
-  name: FreeBSD
-  freebsd_instance:
-    image_family: freebsd-12-2
-  env:
-    CCACHE_SIZE: "500M"
-    CCACHE_DIR: "/tmp/ccache_dir"
-  ccache_cache:
-    folder: "/tmp/ccache_dir"
-  install_script:
-    - uname -a
-    - pkg install -y readline flex bison gmake perl5 p5-IPC-Run liblz4 ccache pkgconf zstd
-  create_user_script:
-    - pw useradd postgres
-    - chown -R postgres:postgres .
-    - mkdir -p /tmp/ccache_dir
-    - chown -R postgres:postgres /tmp/ccache_dir
-  build_script:
-    - su postgres -c './configure --enable-cassert --enable-debug --enable-tap-tests --with-includes=/usr/local/include --with-libs=/usr/local/lib CC="ccache cc"'
-    - su postgres -c 'make -s -j4'
-  test_script:
-    - su postgres -c 'make -s check-world'
-  on_failure:
-    debug_script:
-      - for F in ` find . -name initdb.log -o -name regression.diffs -o -name postmaster.log` ; do echo === $F === ; head -1000 $F ; done
+# task:
+#   name: FreeBSD
+#   freebsd_instance:
+#     image_family: freebsd-12-2
+#   env:
+#     CCACHE_SIZE: "500M"
+#     CCACHE_DIR: "/tmp/ccache_dir"
+#   ccache_cache:
+#     folder: "/tmp/ccache_dir"
+#   install_script:
+#     - uname -a
+#     - pkg install -y readline flex bison gmake perl5 p5-IPC-Run liblz4 ccache pkgconf zstd
+#   create_user_script:
+#     - pw useradd postgres
+#     - chown -R postgres:postgres .
+#     - mkdir -p /tmp/ccache_dir
+#     - chown -R postgres:postgres /tmp/ccache_dir
+#   build_script:
+#     - su postgres -c './configure --enable-cassert --enable-debug --enable-tap-tests --with-includes=/usr/local/include --with-libs=/usr/local/lib CC="ccache cc"'
+#     - su postgres -c 'make -s -j4'
+#   test_script:
+#     - su postgres -c 'make -s check-world'
+#   on_failure:
+#     debug_script:
+#       - for F in ` find . -name initdb.log -o -name regression.diffs -o -name postmaster.log` ; do echo === $F === ; head -1000 $F ; done
 
 
-# ====== macOS ======
-#
-# TODO: backtrace on crash
-# TODO: Can't run check-world yet because of this:
-#   connection to database failed: Unix-domain socket path "/private/var/folders/3y/l0z1x3693dl_8n0qybp4dqwh0000gn/T/cirrus-ci-build/src/bin/pg_upgrade/.s.PGSQL.58080" is too long (maximum 103 bytes)
+# # ====== macOS ======
+# #
+# # TODO: backtrace on crash
+# # TODO: Can't run check-world yet because of this:
+# #   connection to database failed: Unix-domain socket path "/private/var/folders/3y/l0z1x3693dl_8n0qybp4dqwh0000gn/T/cirrus-ci-build/src/bin/pg_upgrade/.s.PGSQL.58080" is too long (maximum 103 bytes)
 
-task:
-  name: macOS
-  osx_instance:
-    image: catalina-base
-  install_script:
-    - uname -a
-    - brew install lz4 zstd
-    - cpan -T IPC::Run
-  build_script:
-    - export PERL5LIB=~/perl5/lib/perl5
-    - ./configure --prefix=$HOME/install --enable-cassert --enable-debug --enable-tap-tests --without-readline --with-includes=/usr/local/include --with-libs=/usr/local/libs
-    - make -s -j12
-    - make -s install
-  test_script:
-    - export PERL5LIB=~/perl5/lib/perl5
-    - ulimit -c unlimited
-    - make -s check
-  on_failure:
-    debug_script:
-      - for F in ` find . -name initdb.log -o -name regression.diffs -o -name postmaster.log` ; do echo === $F === ; head -1000 $F ; done
-      - for corefile in $(find /cores/ -name 'core.*' 2>/dev/null) ; do lldb -c $corefile --batch -o 'thread backtrace all' -o 'quit' ; done
+# task:
+#   name: macOS
+#   osx_instance:
+#     image: catalina-base
+#   install_script:
+#     - uname -a
+#     - brew install lz4 zstd
+#     - cpan -T IPC::Run
+#   build_script:
+#     - export PERL5LIB=~/perl5/lib/perl5
+#     - ./configure --prefix=$HOME/install --enable-cassert --enable-debug --enable-tap-tests --without-readline --with-includes=/usr/local/include --with-libs=/usr/local/libs
+#     - make -s -j12
+#     - make -s install
+#   test_script:
+#     - export PERL5LIB=~/perl5/lib/perl5
+#     - ulimit -c unlimited
+#     - make -s check
+#   on_failure:
+#     debug_script:
+#       - for F in ` find . -name initdb.log -o -name regression.diffs -o -name postmaster.log` ; do echo === $F === ; head -1000 $F ; done
+#       - for corefile in $(find /cores/ -name 'core.*' 2>/dev/null) ; do lldb -c $corefile --batch -o 'thread backtrace all' -o 'quit' ; done
 
 # ====== Linux ======
 # TODO: backtrace on crash
