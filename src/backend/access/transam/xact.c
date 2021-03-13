@@ -1112,6 +1112,9 @@ static void
 AtStart_Cache(void)
 {
 	AcceptInvalidationMessages();
+
+	if (xactStartTimestamp != 0)
+		SetCatCacheClock(xactStartTimestamp);
 }
 
 /*
