@@ -96,6 +96,7 @@ ginqueryarrayextract(PG_FUNCTION_ARGS)
 		elems = &PG_GETARG_DATUM(0);
 		nulls = &PG_ARGISNULL(0);
 		nelems = 1;
+		elog(WARNING, "elems: %d, nulls: %d, nelems: %d", *elems, *nulls, nelems);
 	}
 	else
 	{
