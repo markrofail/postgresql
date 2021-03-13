@@ -228,10 +228,15 @@ ginarrayconsistent(PG_FUNCTION_ARGS)
 			/* result is not lossy */
 			*recheck = false;
 
-			res = check[0];
-			if (nullFlags[0])
-				res = false;
-			elog(WARNING, "check[%d]: %d, nullFlags[%d]: %d", lengthof(check), check[0], lengthof(nullFlags), nullFlags[0]);
+			res = false;
+			for (i = 0; i < nkeys; i++)
+			{
+				if (!nullFlags[i] && check[i])
+					res = true;
+					break;
+			}
+			elog(WARNING, "nkeys: %d, res: %d", nkeys, res);
+			// elog(WARNING, "check[%d]: %d, nullFlags[%d]: %d", lengthof(check), check[0], lengthof(nullFlags), nullFlags[0]);
 			break;
 		default:
 			elog(ERROR, "ginarrayconsistent: unknown strategy number: %d",
@@ -319,10 +324,15 @@ ginarraytriconsistent(PG_FUNCTION_ARGS)
 			}
 			break;
 		case GinContainsElemStrategy:
-			res = check[0];
-			if (nullFlags[0])
-				res = GIN_FALSE;
-			elog(WARNING, "check[%d]: %d, nullFlags[%d]: %d", lengthof(check), check[0], lengthof(nullFlags), nullFlags[0]);
+			res = GIN_FALSE;
+			for (i = 0; i < nkeys; i++)
+			{
+				if (!nullFlags[i] && check[i] == GIN_TRUE)
+					res = GIN_TRUE;
+					break;
+			}
+			elog(WARNING, "nkeys: %d, res: %d", nkeys, res);
+			// elog(WARNING, "check[%d]: %d, nullFlags[%d]: %d", lengthof(check), check[0], lengthof(nullFlags), nullFlags[0]);
 			break;
 		default:
 			elog(ERROR, "ginarrayconsistent: unknown strategy number: %d",
