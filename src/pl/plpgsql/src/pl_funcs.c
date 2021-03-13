@@ -105,6 +105,40 @@ plpgsql_ns_additem(PLpgSQL_nsitem_type itemtype, int itemno, const char *name)
 	ns_top = nse;
 }
 
+/*
+ * Replace ns item of label type by creating new entry and redirect
+ * old entry to new one.
+ */
+void
+plpgsql_ns_replace_root_label(PLpgSQL_nsitem *nse,
+							  const char *name,
+							  int location)
+{
+	PLpgSQL_nsitem *new_nse;
+
+	Assert(name != NULL);
+
+	/* Don't allow repeated redefination of routine label */
+	if (nse->itemno == PLPGSQL_LABEL_REPLACED)
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("redundant option"),
+				 errhint("The option \"routine_label\" can be used only once in rutine."),
+				 plpgsql_scanner_errposition(location)));
+
+	Assert(nse->itemtype == PLPGSQL_NSTYPE_LABEL &&
+		   nse->itemno == (int) PLPGSQL_LABEL_BLOCK &&
+		   nse->prev == NULL);
+
+	new_nse = palloc(offsetof(PLpgSQL_nsitem, name) + strlen(name) + 1);
+	new_nse->itemtype = nse->itemtype;
+	new_nse->itemno = nse->itemno;
+	new_nse->prev = NULL;
+	strcpy(new_nse->name, name);
+
+	nse->prev = new_nse;
+	nse->itemno = (int) PLPGSQL_LABEL_REPLACED;
+}
 
 /* ----------
  * plpgsql_ns_lookup		Lookup an identifier in the given namespace chain
@@ -153,6 +187,14 @@ plpgsql_ns_lookup(PLpgSQL_nsitem *ns_cur, bool localmode,
 			}
 		}
 
+		if (nsitem->itemtype == PLPGSQL_NSTYPE_LABEL &&
+			 nsitem->itemno == (int) PLPGSQL_LABEL_REPLACED)
+		{
+			Assert(nsitem->prev &&
+				   nsitem->prev->itemtype == PLPGSQL_NSTYPE_LABEL);
+			nsitem = nsitem->prev;
+		}
+
 		/* Check this level for qualified match to variable name */
 		if (name2 != NULL &&
 			strcmp(nsitem->name, name1) == 0)
@@ -197,6 +239,7 @@ plpgsql_ns_lookup_label(PLpgSQL_nsitem *ns_cur, const char *name)
 	while (ns_cur != NULL)
 	{
 		if (ns_cur->itemtype == PLPGSQL_NSTYPE_LABEL &&
+			ns_cur->itemno != PLPGSQL_LABEL_REPLACED &&
 			strcmp(ns_cur->name, name) == 0)
 			return ns_cur;
 		ns_cur = ns_cur->prev;
