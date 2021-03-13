@@ -365,3 +365,54 @@ SELECT pg_stat_statements_reset();
 SELECT dealloc FROM pg_stat_statements_info;
 
 DROP EXTENSION pg_stat_statements;
+
+--
+-- Verify compatible with older versions.
+-- Currently the lowest version from which upgrade is supported is 1.4.
+--
+CREATE EXTENSION pg_stat_statements with version '1.4';
+SELECT * FROM pg_available_extensions WHERE name = 'pg_stat_statements' and installed_version = '1.4';
+SELECT pg_stat_statements_reset();
+SELECT count(query) FROM pg_stat_statements;
+
+---
+--- Upgrade extension to 1.5
+---
+AlTER EXTENSION pg_stat_statements update to '1.5';
+SELECT * FROM pg_available_extensions WHERE name = 'pg_stat_statements' and installed_version = '1.5';
+SELECT pg_stat_statements_reset();
+SELECT count(query) FROM pg_stat_statements;
+
+---
+--- Upgrade extension to 1.6
+---
+AlTER EXTENSION pg_stat_statements update to '1.6';
+SELECT * FROM pg_available_extensions WHERE name = 'pg_stat_statements' and installed_version = '1.6';
+SELECT pg_stat_statements_reset();
+SELECT count(query) FROM pg_stat_statements;
+
+---
+--- Upgrade extension to 1.7
+---
+AlTER EXTENSION pg_stat_statements update to '1.7';
+SELECT * FROM pg_available_extensions WHERE name = 'pg_stat_statements' and installed_version = '1.7';
+SELECT pg_stat_statements_reset();
+SELECT count(query) FROM pg_stat_statements;
+
+---
+--- Upgrade extension to 1.8
+---
+AlTER EXTENSION pg_stat_statements update to '1.8';
+SELECT * FROM pg_available_extensions WHERE name = 'pg_stat_statements' and installed_version = '1.8';
+SELECT pg_stat_statements_reset();
+SELECT count(plans) FROM pg_stat_statements;
+
+---
+--- Upgrade extension to 1.9
+---
+AlTER EXTENSION pg_stat_statements update to '1.9';
+SELECT * FROM pg_available_extensions WHERE name = 'pg_stat_statements' and installed_version = '1.9';
+SELECT pg_stat_statements_reset();
+SELECT dealloc FROM pg_stat_statements_info;
+
+DROP EXTENSION pg_stat_statements;
