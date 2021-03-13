@@ -139,7 +139,6 @@ ginqueryarrayextract(PG_FUNCTION_ARGS)
 			break;
 		case GinContainsElemStrategy:
 			*searchMode = GIN_SEARCH_MODE_DEFAULT;
-			// elog(WARNING, "ginqueryarrayextract");
 			break;
 		default:
 			elog(ERROR, "ginqueryarrayextract: unknown strategy number: %d",
@@ -226,9 +225,12 @@ ginarrayconsistent(PG_FUNCTION_ARGS)
 			}
 			break;
 		case GinContainsElemStrategy:
-			/* we will need recheck */
-			*recheck = true;
+			/* result is not lossy */
+			*recheck = false;
+
 			res = check;
+			if (nullFlags[0])
+				res = false;
 			break;
 		default:
 			elog(ERROR, "ginarrayconsistent: unknown strategy number: %d",
@@ -317,7 +319,8 @@ ginarraytriconsistent(PG_FUNCTION_ARGS)
 			break;
 		case GinContainsElemStrategy:
 			res = check[0];
-			// elog(WARNING, "ginarraytriconsistent");
+			if (nullFlags[0])
+				res = GIN_FALSE;
 			break;
 		default:
 			elog(ERROR, "ginarrayconsistent: unknown strategy number: %d",
