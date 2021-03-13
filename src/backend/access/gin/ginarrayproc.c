@@ -328,9 +328,8 @@ ginarraytriconsistent(PG_FUNCTION_ARGS)
 			if (check[0] == GIN_FALSE || nullFlags[0])
 			{
 				res = GIN_FALSE;
-				break;
 			}
-			elif (check[0] == GIN_MAYBE)
+			else if (check[0] == GIN_MAYBE)
 			{
 				res = GIN_MAYBE;
 			}
@@ -338,7 +337,7 @@ ginarraytriconsistent(PG_FUNCTION_ARGS)
 			{
 				res = GIN_TRUE;
 			}
-			elog(WARNING, "ginarraytriconsistent");
+			// elog(WARNING, "ginarraytriconsistent");
 			break;
 		default:
 			elog(ERROR, "ginarrayconsistent: unknown strategy number: %d",
