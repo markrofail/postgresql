@@ -228,9 +228,10 @@ ginarrayconsistent(PG_FUNCTION_ARGS)
 			/* result is not lossy */
 			*recheck = false;
 
-			res = check;
+			res = check[0];
 			if (nullFlags[0])
 				res = false;
+			elog(WARNING, "check[%d]: %d, nullFlags[%d]: %d", lengthof(check), check[0], lengthof(nullFlags), nullFlags[0])
 			break;
 		default:
 			elog(ERROR, "ginarrayconsistent: unknown strategy number: %d",
@@ -321,6 +322,7 @@ ginarraytriconsistent(PG_FUNCTION_ARGS)
 			res = check[0];
 			if (nullFlags[0])
 				res = GIN_FALSE;
+			elog(WARNING, "check[%d]: %d, nullFlags[%d]: %d", lengthof(check), check[0], lengthof(nullFlags), nullFlags[0])
 			break;
 		default:
 			elog(ERROR, "ginarrayconsistent: unknown strategy number: %d",

@@ -11487,7 +11487,7 @@ generate_operator_clause(StringInfo buf,
 
 	/* Override operator with <<@ in case of FK array */
 	if(fkreftype == FKCONSTR_REF_EACH_ELEMENT)
-		oproid = OID_ARRAY_ELEMCONTAINS_OP;
+		oproid = OID_ARRAY_ELEMCONTAINED_OP;
 	else
 		oproid = opoid;
 
@@ -11500,30 +11500,14 @@ generate_operator_clause(StringInfo buf,
 
 	nspname = get_namespace_name(operform->oprnamespace);
 
-	if(fkreftype == FKCONSTR_REF_EACH_ELEMENT)
-	{
-		appendStringInfoString(buf, rightop);
-		if (rightoptype != operform->oprleft)
-			add_cast_to(buf, operform->oprleft);
-		appendStringInfo(buf, " OPERATOR(%s.", quote_identifier(nspname));
-		appendStringInfoString(buf, oprname);
-		appendStringInfo(buf, ") %s", leftop);
-		if (leftoptype != operform->oprright)
-			add_cast_to(buf, operform->oprright);
-
-	}
-	else
-	{
-		appendStringInfoString(buf, leftop);
-		if (leftoptype != operform->oprleft)
-			add_cast_to(buf, operform->oprleft);
-		appendStringInfo(buf, " OPERATOR(%s.", quote_identifier(nspname));
-		appendStringInfoString(buf, oprname);
-		appendStringInfo(buf, ") %s", rightop);
-		if (rightoptype != operform->oprright)
-			add_cast_to(buf, operform->oprright);
-
-	}
+	appendStringInfoString(buf, leftop);
+	if (leftoptype != operform->oprleft)
+		add_cast_to(buf, operform->oprleft);
+	appendStringInfo(buf, " OPERATOR(%s.", quote_identifier(nspname));
+	appendStringInfoString(buf, oprname);
+	appendStringInfo(buf, ") %s", rightop);
+	if (rightoptype != operform->oprright)
+		add_cast_to(buf, operform->oprright);
 
 	ReleaseSysCache(opertup);
 }
