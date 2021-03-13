@@ -228,15 +228,7 @@ ginarrayconsistent(PG_FUNCTION_ARGS)
 		case GinContainsElemStrategy:
 			/* we will need recheck */
 			*recheck = true;
-			if (!check[0] || nullFlags[0])
-			{
-				res = false;
-			}
-			else
-			{
-				res = true;
-			}
-			// elog(WARNING, "ginarrayconsistent");
+			res = check;
 			break;
 		default:
 			elog(ERROR, "ginarrayconsistent: unknown strategy number: %d",
@@ -324,19 +316,7 @@ ginarraytriconsistent(PG_FUNCTION_ARGS)
 			}
 			break;
 		case GinContainsElemStrategy:
-			/* must have all elements in check[] true, and no nulls */
-			if (check[0] == GIN_FALSE || nullFlags[0])
-			{
-				res = GIN_FALSE;
-			}
-			else if (check[0] == GIN_MAYBE)
-			{
-				res = GIN_MAYBE;
-			}
-			else
-			{
-				res = GIN_TRUE;
-			}
+			res = check[0];
 			// elog(WARNING, "ginarraytriconsistent");
 			break;
 		default:
