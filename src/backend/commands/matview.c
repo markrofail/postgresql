@@ -764,7 +764,8 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 				generate_operator_clause(&querybuf,
 										 leftop, attrtype,
 										 op,
-										 rightop, attrtype);
+										 rightop, attrtype,
+										 FKCONSTR_REF_PLAIN);
 
 				foundUniqueIndex = true;
 			}
