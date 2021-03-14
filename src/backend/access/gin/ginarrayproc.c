@@ -250,7 +250,7 @@ ginarrayconsistent(PG_FUNCTION_ARGS)
 	for (i = 0; i < nkeys; i++)
 		sprintf(nullbuf, " %s", nullFlags[i] ? "true" : "false");
 
-	elog(WARNING, "nkeys: %d, check:%s, nullFlags:%s", nkeys, checkbuf, nullbuf);
+	// elog(WARNING, "nkeys: %d, check:%s, nullFlags:%s", nkeys, checkbuf, nullbuf);
 	PG_RETURN_BOOL(res);
 }
 
@@ -359,6 +359,6 @@ ginarraytriconsistent(PG_FUNCTION_ARGS)
 	for (i = 0; i < nkeys; i++)
 		sprintf(nullbuf, " %s", nullFlags[i] ? "true" : "false");
 
-	elog(WARNING, "nkeys:%d, check:%s, nullFlags:%s", nkeys, checkbuf, nullbuf);
+	// elog(WARNING, "nkeys:%d, check:%s, nullFlags:%s", nkeys, checkbuf, nullbuf);
 	PG_RETURN_GIN_TERNARY_VALUE(res);
 }
