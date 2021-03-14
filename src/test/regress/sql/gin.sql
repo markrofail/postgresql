@@ -45,8 +45,6 @@ delete from gin_test_tbl where i @> array[2];
 vacuum gin_test_tbl;
 
 -- Test for "rare && frequent" searches
-REINDEX TABLE gin_test_tbl;
-
 explain (costs off)
 select count(*) from gin_test_tbl where i @> array[1, 999];
 
@@ -54,11 +52,15 @@ select count(*) from gin_test_tbl where i @> array[1, 999];
 
 explain (costs off)
 select count(*) from gin_test_tbl where i @>> 1;
+
+select count(*) from gin_test_tbl where i @>> 1;
+select count(*) from gin_test_tbl where i @> ARRAY[1];
+
 explain (costs off)
 select count(*) from gin_test_tbl where i @>> 999;
 
-select count(*) from gin_test_tbl where i @>> 1;
 select count(*) from gin_test_tbl where i @>> 999;
+select count(*) from gin_test_tbl where i @> ARRAY[999];
 
 -- Very weak test for gin_fuzzy_search_limit
 set gin_fuzzy_search_limit = 1000;
