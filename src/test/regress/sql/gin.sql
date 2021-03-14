@@ -6,7 +6,8 @@
 create table gin_test_a(i int4[]);
 create index gin_test_a_idx on gin_test_a using gin (i);
 insert into gin_test_a select array[g] from generate_series(1, 10) g;
-insert into gin_test_a (i) VALUES (1), (1);
+insert into gin_test_a (i) VALUES (ARRAY[1]), (ARRAY[1]), (ARRAY[1]);
+REINDEX INDEX gin_test_a;
 
 select count(*) from gin_test_a where i @> ARRAY[1];
 select count(*) from gin_test_a where i @>> 1;
