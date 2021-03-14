@@ -7,7 +7,7 @@ create table gin_test_a(i int4[]);
 create index gin_test_a_idx on gin_test_a using gin (i);
 insert into gin_test_a select array[g] from generate_series(1, 10) g;
 insert into gin_test_a (i) VALUES (ARRAY[1]), (ARRAY[1]), (ARRAY[1]);
-REINDEX INDEX gin_test_a;
+REINDEX TABLE gin_test_a;
 
 select count(*) from gin_test_a where i @> ARRAY[1];
 select count(*) from gin_test_a where i @>> 1;
@@ -45,6 +45,8 @@ delete from gin_test_tbl where i @> array[2];
 vacuum gin_test_tbl;
 
 -- Test for "rare && frequent" searches
+REINDEX TABLE gin_test_tbl;
+
 explain (costs off)
 select count(*) from gin_test_tbl where i @> array[1, 999];
 
