@@ -138,7 +138,7 @@ ginqueryarrayextract(PG_FUNCTION_ARGS)
 				*searchMode = GIN_SEARCH_MODE_INCLUDE_EMPTY;
 			break;
 		case GinContainsElemStrategy:
-			*searchMode = GIN_SEARCH_MODE_DEFAULT;
+				*searchMode = GIN_SEARCH_MODE_DEFAULT;
 			break;
 		default:
 			elog(ERROR, "ginqueryarrayextract: unknown strategy number: %d",
@@ -229,14 +229,12 @@ ginarrayconsistent(PG_FUNCTION_ARGS)
 			*recheck = false;
 
 			res = false;
-			for (i = 0; i < lengthof(check); i++)
-			{
-				if (!nullFlags[i] && check[i])
+			for (i = 0; i < nkeys; i++) {
+				if(!nullFlags[i] && check[i]) {
 					res = true;
 					break;
+				}
 			}
-			// elog(WARNING, "nkeys: %d, res: %d", nkeys, res);
-			// elog(WARNING, "check[%d]: %d, nullFlags[%d]: %d", lengthof(check), check[0], lengthof(nullFlags), nullFlags[0]);
 			break;
 		default:
 			elog(ERROR, "ginarrayconsistent: unknown strategy number: %d",
@@ -244,6 +242,15 @@ ginarrayconsistent(PG_FUNCTION_ARGS)
 			res = false;
 	}
 
+	char checkbuf[250];
+	for (i = 0; i < nkeys; i++)
+		sprintf(checkbuf, " %s", check[i] ? "true" : "false");
+
+	char nullbuf[250];
+	for (i = 0; i < nkeys; i++)
+		sprintf(nullbuf, " %s", nullFlags[i] ? "true" : "false");
+
+	elog(WARNING, "nkeys: %d, check:%s, nullFlags:%s", nkeys, checkbuf, nullbuf);
 	PG_RETURN_BOOL(res);
 }
 
@@ -325,14 +332,12 @@ ginarraytriconsistent(PG_FUNCTION_ARGS)
 			break;
 		case GinContainsElemStrategy:
 			res = GIN_FALSE;
-			for (i = 0; i < lengthof(check); i++)
-			{
-				if (!nullFlags[i] && check[i] == GIN_TRUE)
+			for (i = 0; i < nkeys; i++) {
+				if(!nullFlags[i] && check[i] == GIN_TRUE) {
 					res = GIN_TRUE;
 					break;
+				}
 			}
-			// elog(WARNING, "nkeys: %d, res: %d", nkeys, res);
-			// elog(WARNING, "check[%d]: %d, nullFlags[%d]: %d", lengthof(check), check[0], lengthof(nullFlags), nullFlags[0]);
 			break;
 		default:
 			elog(ERROR, "ginarrayconsistent: unknown strategy number: %d",
@@ -340,5 +345,20 @@ ginarraytriconsistent(PG_FUNCTION_ARGS)
 			res = false;
 	}
 
+	char checkbuf[250];
+	for (i = 0; i < nkeys; i++){
+		if (check[i] == GIN_FALSE)
+			sprintf(checkbuf, " GIN_FALSE");
+		else if (check[i] == GIN_TRUE)
+			sprintf(checkbuf, " GIN_TRUE");
+		else if (check[i] == GIN_MAYBE)
+			sprintf(checkbuf, " GIN_MAYBE");
+	}
+
+	char nullbuf[250];
+	for (i = 0; i < nkeys; i++)
+		sprintf(nullbuf, " %s", nullFlags[i] ? "true" : "false");
+
+	elog(WARNING, "nkeys:%d, check:%s, nullFlags:%s", nkeys, checkbuf, nullbuf);
 	PG_RETURN_GIN_TERNARY_VALUE(res);
 }
