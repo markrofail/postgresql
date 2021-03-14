@@ -1,5 +1,8 @@
 #  appveyor.yml
 install:
+  - appveyor-retry cinst winflexbison
+  - rename c:\ProgramData\chocolatey\bin\win_flex.exe flex.exe
+  - rename c:\ProgramData\chocolatey\bin\win_bison.exe bison.exe
   - '"C:\Program Files\Microsoft SDKs\Windows\v7.1\Bin\SetEnv.cmd" /x64'
   - '"C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\vcvarsall.bat" x86_amd64'
   - SET PATH=%PATH%;C:\msys64\usr\bin

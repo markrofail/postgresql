@@ -7,7 +7,6 @@ create table gin_test_a(i int4[]);
 create index gin_test_a_idx on gin_test_a using gin (i);
 insert into gin_test_a select array[g] from generate_series(1, 10) g;
 insert into gin_test_a (i) VALUES (ARRAY[1]), (ARRAY[1]), (ARRAY[1]);
-REINDEX TABLE gin_test_a;
 
 select count(*) from gin_test_a where i @> ARRAY[1];
 select count(*) from gin_test_a where i @>> 1;
@@ -54,13 +53,11 @@ explain (costs off)
 select count(*) from gin_test_tbl where i @>> 1;
 
 select count(*) from gin_test_tbl where i @>> 1;
-select count(*) from gin_test_tbl where i @> ARRAY[1];
 
 explain (costs off)
 select count(*) from gin_test_tbl where i @>> 999;
 
 select count(*) from gin_test_tbl where i @>> 999;
-select count(*) from gin_test_tbl where i @> ARRAY[999];
 
 -- Very weak test for gin_fuzzy_search_limit
 set gin_fuzzy_search_limit = 1000;
