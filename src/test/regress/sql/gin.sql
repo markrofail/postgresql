@@ -3,15 +3,6 @@
 --
 -- There are other tests to test different GIN opclasses. This is for testing
 -- GIN itself.
-create table gin_test_a(i int4[]);
-create index gin_test_a_idx on gin_test_a using gin (i);
-insert into gin_test_a select array[g] from generate_series(1, 10) g;
-insert into gin_test_a (i) VALUES (ARRAY[1]), (ARRAY[1]), (ARRAY[1]);
-
-select count(*) from gin_test_a where i @> ARRAY[1];
-select count(*) from gin_test_a where i @>> 1;
-select count(*) from gin_test_a where i @>> 99;
-
 -- Create and populate a test table with a GIN index.
 create table gin_test_tbl(i int4[]) with (autovacuum_enabled = off);
 create index gin_test_idx on gin_test_tbl using gin (i)
@@ -52,10 +43,10 @@ select count(*) from gin_test_tbl where i @> array[1, 999];
 explain (costs off)
 select count(*) from gin_test_tbl where i @>> 1;
 
-select count(*) from gin_test_tbl where i @>> 1;
-
 explain (costs off)
 select count(*) from gin_test_tbl where i @>> 999;
+
+select count(*) from gin_test_tbl where i @>> 1;
 
 select count(*) from gin_test_tbl where i @>> 999;
 
