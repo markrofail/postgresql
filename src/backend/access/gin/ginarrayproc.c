@@ -153,28 +153,6 @@ ginqueryarrayextract(PG_FUNCTION_ARGS)
 	PG_RETURN_POINTER(elems);
 }
 
-static void debug_gin(int32 nkeys, int *check, bool *nullFlags)
-{
-	char checkbuf[250] = "";
-	char nullbuf[250] = "";
-
-	return;
-
-	for (int i = 0; i < nkeys; i++){
-		if (check[i] == GIN_FALSE)
-			sprintf(checkbuf, " GIN_FALSE");
-		else if (check[i] == GIN_TRUE)
-			sprintf(checkbuf, " GIN_TRUE");
-		else if (check[i] == GIN_MAYBE)
-			sprintf(checkbuf, " GIN_MAYBE");
-	}
-
-	for (int i = 0; i < nkeys; i++)
-		sprintf(nullbuf, " %s", nullFlags[i] ? "true" : "false");
-
-	elog(WARNING, "nkeys:%d, check:%s, nullFlags:%s", nkeys, checkbuf, nullbuf);
-}
-
 /*
  * consistent support function
  */
@@ -268,7 +246,6 @@ ginarrayconsistent(PG_FUNCTION_ARGS)
 			res = false;
 	}
 
-	debug_gin(nkeys, (int *) check, nullFlags);
 	PG_RETURN_BOOL(res);
 }
 
@@ -366,6 +343,5 @@ ginarraytriconsistent(PG_FUNCTION_ARGS)
 			res = false;
 	}
 
-	debug_gin(nkeys, (int *) check, nullFlags);
 	PG_RETURN_GIN_TERNARY_VALUE(res);
 }
