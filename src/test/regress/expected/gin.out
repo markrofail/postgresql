@@ -78,7 +78,7 @@ select count(*) from gin_test_tbl where i @>> 999;
 select count(*) from gin_test_tbl where i @>> 1;
  count 
 -------
-     2997
+  2997
 (1 row)
 
 select count(*) from gin_test_tbl where i @>> 999;

@@ -242,13 +242,13 @@ ginarrayconsistent(PG_FUNCTION_ARGS)
 			res = false;
 	}
 
-	char checkbuf[250];
-	for (i = 0; i < nkeys; i++)
-		sprintf(checkbuf, " %s", check[i] ? "true" : "false");
+	// char checkbuf[250];
+	// for (i = 0; i < nkeys; i++)
+	// 	sprintf(checkbuf, " %s", check[i] ? "true" : "false");
 
-	char nullbuf[250];
-	for (i = 0; i < nkeys; i++)
-		sprintf(nullbuf, " %s", nullFlags[i] ? "true" : "false");
+	// char nullbuf[250];
+	// for (i = 0; i < nkeys; i++)
+	// 	sprintf(nullbuf, " %s", nullFlags[i] ? "true" : "false");
 
 	// elog(WARNING, "nkeys: %d, check:%s, nullFlags:%s", nkeys, checkbuf, nullbuf);
 	PG_RETURN_BOOL(res);
@@ -337,6 +337,9 @@ ginarraytriconsistent(PG_FUNCTION_ARGS)
 					res = GIN_TRUE;
 					break;
 				}
+				else if (check[i] == GIN_MAYBE) {
+					res = GIN_MAYBE;
+				}
 			}
 			break;
 		default:
@@ -345,19 +348,19 @@ ginarraytriconsistent(PG_FUNCTION_ARGS)
 			res = false;
 	}
 
-	char checkbuf[250];
-	for (i = 0; i < nkeys; i++){
-		if (check[i] == GIN_FALSE)
-			sprintf(checkbuf, " GIN_FALSE");
-		else if (check[i] == GIN_TRUE)
-			sprintf(checkbuf, " GIN_TRUE");
-		else if (check[i] == GIN_MAYBE)
-			sprintf(checkbuf, " GIN_MAYBE");
-	}
+	// char checkbuf[250];
+	// for (i = 0; i < nkeys; i++){
+	// 	if (check[i] == GIN_FALSE)
+	// 		sprintf(checkbuf, " GIN_FALSE");
+	// 	else if (check[i] == GIN_TRUE)
+	// 		sprintf(checkbuf, " GIN_TRUE");
+	// 	else if (check[i] == GIN_MAYBE)
+	// 		sprintf(checkbuf, " GIN_MAYBE");
+	// }
 
-	char nullbuf[250];
-	for (i = 0; i < nkeys; i++)
-		sprintf(nullbuf, " %s", nullFlags[i] ? "true" : "false");
+	// char nullbuf[250];
+	// for (i = 0; i < nkeys; i++)
+	// 	sprintf(nullbuf, " %s", nullFlags[i] ? "true" : "false");
 
 	// elog(WARNING, "nkeys:%d, check:%s, nullFlags:%s", nkeys, checkbuf, nullbuf);
 	PG_RETURN_GIN_TERNARY_VALUE(res);
