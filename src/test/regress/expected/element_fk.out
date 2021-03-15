@@ -580,16 +580,11 @@ SELECT COUNT(*) FROM FKTABLEFORARRAYGIN;
     10
 (1 row)
 
-SET enable_seqscan=off; -- to ensure GIN index is used
-EXPLAIN (COSTS OFF) SELECT COUNT(*) FROM FKTABLEFORARRAYGIN WHERE ftest1 @>> 5;
-                           QUERY PLAN                           
-----------------------------------------------------------------
- Aggregate
-   ->  Bitmap Heap Scan on fktableforarraygin
-         Recheck Cond: (ftest1 @>> 5)
-         ->  Bitmap Index Scan on fktableforarraygin_ftest1_idx
-               Index Cond: (ftest1 @>> 5)
-(5 rows)
+SELECT COUNT(*) FROM FKTABLEFORARRAYGIN WHERE ftest1 @> ARRAY[5];
+ count 
+-------
+     5
+(1 row)
 
 SELECT COUNT(*) FROM FKTABLEFORARRAYGIN WHERE ftest1 @>> 5;
  count 
