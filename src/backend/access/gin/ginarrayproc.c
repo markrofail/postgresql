@@ -158,6 +158,8 @@ static void debug_gin(int32 nkeys, int *check, bool *nullFlags)
 	char checkbuf[250] = "";
 	char nullbuf[250] = "";
 
+	return;
+
 	for (int i = 0; i < nkeys; i++){
 		if (check[i] == GIN_FALSE)
 			sprintf(checkbuf, " GIN_FALSE");
@@ -266,7 +268,7 @@ ginarrayconsistent(PG_FUNCTION_ARGS)
 			res = false;
 	}
 
-	// debug_gin(nkeys, (int *) check, nullFlags);
+	debug_gin(nkeys, (int *) check, nullFlags);
 	PG_RETURN_BOOL(res);
 }
 
@@ -364,6 +366,6 @@ ginarraytriconsistent(PG_FUNCTION_ARGS)
 			res = false;
 	}
 
-	// debug_gin(nkeys, (int *) check, nullFlags);
+	debug_gin(nkeys, (int *) check, nullFlags);
 	PG_RETURN_GIN_TERNARY_VALUE(res);
 }
