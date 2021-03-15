@@ -90,22 +90,22 @@ task:
   test_script:
     - su postgres -c 'make -s check-world' || su postgres -c '( for F in ` find . -name initdb.log -o -name regression.diffs ` ; do echo === $F === ; head -1000 $F ; done ; exit 1 )'
 
-# ====== Windows ======
-# This doesn't work.  I think it's the wrong version of Visual Studio and/or
-# msbuild, but I don't understand Windows.  Help!
+# # ====== Windows ======
+# # This doesn't work.  I think it's the wrong version of Visual Studio and/or
+# # msbuild, but I don't understand Windows.  Help!
 
-task:
- name: Windows
- windows_container:
-   image: cirrusci/windowsservercore:cmake
- install_script:
-   - choco install -y winflexbison activeperl diffutils
-   - rename c:\ProgramData\chocolatey\bin\win_flex.exe flex.exe
-   - rename c:\ProgramData\chocolatey\bin\win_bison.exe bison.exe
-   - choco install -y microsoft-build-tools
- build_script:
-   - SET "PATH=%PATH%;C:\Perl64\bin;c:\Program Files (x86)\Microsoft Visual Studio\2017\BuildTools\MSBuild\15.0\Bin"
-   - perl buildsetup.pl
-   - msbuild pgsql.sln
- test_script:
-   - cd src\tools\msvc && vcregress check
+# task:
+#  name: Windows
+#  windows_container:
+#    image: cirrusci/windowsservercore:cmake
+#  install_script:
+#    - choco install -y winflexbison activeperl diffutils
+#    - rename c:\ProgramData\chocolatey\bin\win_flex.exe flex.exe
+#    - rename c:\ProgramData\chocolatey\bin\win_bison.exe bison.exe
+#    - choco install -y microsoft-build-tools
+#  build_script:
+#    - SET "PATH=%PATH%;C:\Perl64\bin;c:\Program Files (x86)\Microsoft Visual Studio\2017\BuildTools\MSBuild\15.0\Bin"
+#    - perl buildsetup.pl
+#    - msbuild pgsql.sln
+#  test_script:
+#    - cd src\tools\msvc && vcregress check

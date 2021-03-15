@@ -93,8 +93,12 @@ ginqueryarrayextract(PG_FUNCTION_ARGS)
 	if (strategy == GinContainsElemStrategy)
 	{
 		/* single element is passed, set elems to its pointer */
-		elems = &PG_GETARG_DATUM(0);
-		nulls = &PG_ARGISNULL(0);
+		elems = palloc(sizeof(*elems));
+		*elems = PG_GETARG_DATUM(0);
+
+		nulls = palloc(sizeof(*nulls));
+		*nulls = PG_ARGISNULL(0);
+
 		nelems = 1;
 	}
 	else
@@ -147,6 +151,26 @@ ginqueryarrayextract(PG_FUNCTION_ARGS)
 
 	/* we should not free array, elems[i] points into it */
 	PG_RETURN_POINTER(elems);
+}
+
+static void debug_gin(int32 nkeys, int *check, bool *nullFlags)
+{
+	char checkbuf[250] = "";
+	char nullbuf[250] = "";
+
+	for (int i = 0; i < nkeys; i++){
+		if (check[i] == GIN_FALSE)
+			sprintf(checkbuf, " GIN_FALSE");
+		else if (check[i] == GIN_TRUE)
+			sprintf(checkbuf, " GIN_TRUE");
+		else if (check[i] == GIN_MAYBE)
+			sprintf(checkbuf, " GIN_MAYBE");
+	}
+
+	for (int i = 0; i < nkeys; i++)
+		sprintf(nullbuf, " %s", nullFlags[i] ? "true" : "false");
+
+	elog(WARNING, "nkeys:%d, check:%s, nullFlags:%s", nkeys, checkbuf, nullbuf);
 }
 
 /*
@@ -242,15 +266,7 @@ ginarrayconsistent(PG_FUNCTION_ARGS)
 			res = false;
 	}
 
-	// char checkbuf[250];
-	// for (i = 0; i < nkeys; i++)
-	// 	sprintf(checkbuf, " %s", check[i] ? "true" : "false");
-
-	// char nullbuf[250];
-	// for (i = 0; i < nkeys; i++)
-	// 	sprintf(nullbuf, " %s", nullFlags[i] ? "true" : "false");
-
-	// elog(WARNING, "nkeys: %d, check:%s, nullFlags:%s", nkeys, checkbuf, nullbuf);
+	// debug_gin(nkeys, (int *) check, nullFlags);
 	PG_RETURN_BOOL(res);
 }
 
@@ -348,20 +364,6 @@ ginarraytriconsistent(PG_FUNCTION_ARGS)
 			res = false;
 	}
 
-	// char checkbuf[250];
-	// for (i = 0; i < nkeys; i++){
-	// 	if (check[i] == GIN_FALSE)
-	// 		sprintf(checkbuf, " GIN_FALSE");
-	// 	else if (check[i] == GIN_TRUE)
-	// 		sprintf(checkbuf, " GIN_TRUE");
-	// 	else if (check[i] == GIN_MAYBE)
-	// 		sprintf(checkbuf, " GIN_MAYBE");
-	// }
-
-	// char nullbuf[250];
-	// for (i = 0; i < nkeys; i++)
-	// 	sprintf(nullbuf, " %s", nullFlags[i] ? "true" : "false");
-
-	// elog(WARNING, "nkeys:%d, check:%s, nullFlags:%s", nkeys, checkbuf, nullbuf);
+	// debug_gin(nkeys, (int *) check, nullFlags);
 	PG_RETURN_GIN_TERNARY_VALUE(res);
 }

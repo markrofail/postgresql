@@ -19,12 +19,12 @@ build_script:
   - set HOME=.
   - set PATH=%CYG_ROOT%/bin;%PATH%
   - sh -l -c "./configure --enable-cassert --enable-debug --enable-nls --with-ldap --with-libxml --with-libxslt --with-openssl"
-  - sh -l -c "make world COPT=-Werror"
+  - sh -l -c "make COPT=-Werror"
 
 test_script:
   - set HOME=.
   - set PATH=%CYG_ROOT%/bin;%PATH%
-  - sh -l -c "make check-world COPT=-Werror"
+  - sh -l -c "make check COPT=-Werror"
 
 on_failure:
   - set HOME=.
